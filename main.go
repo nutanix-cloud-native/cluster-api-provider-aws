@@ -496,7 +496,7 @@ func setupEKSReconcilersAndWebhooks(ctx context.Context, mgr ctrl.Manager,
 		Client:           mgr.GetClient(),
 		WatchFilterValue: watchFilterValue,
 	}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: awsClusterConcurrency, RecoverPanic: ptr.To[bool](true)}); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "EKSConfig")
+		setupLog.Error(err, "unable to create controller", "controller", "NodeadmConfig")
 		os.Exit(1)
 	}
 

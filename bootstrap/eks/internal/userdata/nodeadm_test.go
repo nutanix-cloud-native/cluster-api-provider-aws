@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright 2026 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -79,6 +79,25 @@ func TestNodeadmUserdata(t *testing.T) {
 				return strings.Contains(output, "node-role.undistro.io/infra=true") &&
 					strings.Contains(output, "register-with-taints") &&
 					strings.Contains(output, "apiVersion: node.eks.aws/v1alpha1")
+			},
+		},
+		{
+			name: "kubelet flags without kubelet config produces valid NodeConfig with kubelet section",
+			args: args{
+				input: &NodeadmInput{
+					ClusterName:       "test-cluster",
+					APIServerEndpoint: "https://example.com",
+					CACert:            "test-ca-cert",
+					KubeletFlags: []string{
+						"--node-labels=foo=bar",
+					},
+				},
+			},
+			expectErr: false,
+			verifyOutput: func(output string) bool {
+				return strings.Contains(output, "kubelet:") &&
+					strings.Contains(output, "flags:") &&
+					strings.Contains(output, `"--node-labels=foo=bar"`)
 			},
 		},
 		{

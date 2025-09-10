@@ -33,7 +33,8 @@ import (
 	ekscontrolplanev1 "sigs.k8s.io/cluster-api-provider-aws/v2/controlplane/eks/api/v1beta2"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
-	"sigs.k8s.io/cluster-api/util/conditions"
+	v1beta1conditions "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions"
+	kubeconfigutil "sigs.k8s.io/cluster-api/util/kubeconfig"
 )
 
 func TestEKSConfigReconciler(t *testing.T) {
@@ -285,13 +286,15 @@ func newCluster(name string) *clusterv1.Cluster {
 		},
 		Spec: clusterv1.ClusterSpec{
 			ControlPlaneRef: clusterv1.ContractVersionedObjectReference{
-				Name: name,
-				Kind: "AWSManagedControlPlane",
+				Name:     name,
+				Kind:     "AWSManagedControlPlane",
+				APIGroup: ekscontrolplanev1.GroupVersion.Group,
 			},
 		},
 		Status: clusterv1.ClusterStatus{
 			Initialization: clusterv1.ClusterInitializationStatus{
 				InfrastructureProvisioned: ptr.To(true),
+				ControlPlaneInitialized:   ptr.To(true),
 			},
 		},
 	}
@@ -426,7 +429,7 @@ func newAMCP(name string) *ekscontrolplanev1.AWSManagedControlPlane {
 			EKSClusterName: generatedName,
 		},
 	}
-	conditions.MarkTrue(amcp, ekscontrolplanev1.EKSControlPlaneReadyCondition)
+	v1beta1conditions.MarkTrue(amcp, ekscontrolplanev1.EKSControlPlaneReadyCondition)
 	return amcp
 }
 
