@@ -2,7 +2,7 @@
 // +build e2e
 
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2026 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -28,11 +28,13 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ref "k8s.io/client-go/tools/reference"
+	"k8s.io/utils/ptr"
 
+	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
 	eksbootstrapv1 "sigs.k8s.io/cluster-api-provider-aws/v2/bootstrap/eks/api/v1beta2"
 	ekscontrolplanev1 "sigs.k8s.io/cluster-api-provider-aws/v2/controlplane/eks/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-aws/v2/test/e2e/shared"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/test/framework"
 	"sigs.k8s.io/cluster-api/util"
 )
@@ -60,6 +62,7 @@ var _ = ginkgo.Describe("EKS Cluster upgrade test", func() {
 
 		initialVersion = e2eCtx.E2EConfig.MustGetVariable(shared.EksUpgradeFromVersion)
 		upgradeToVersion = e2eCtx.E2EConfig.MustGetVariable(shared.EksUpgradeToVersion)
+		machineType := e2eCtx.E2EConfig.MustGetVariable(shared.AwsNodeMachineType)
 
 		ginkgo.By("default iam role should exist")
 		VerifyRoleExistsAndOwned(ctx, ekscontrolplanev1.DefaultEKSControlPlaneRole, clusterName, false, e2eCtx.AWSSession)
@@ -92,7 +95,7 @@ var _ = ginkgo.Describe("EKS Cluster upgrade test", func() {
 		MachineDeploymentSpec(ctx, func() MachineDeploymentSpecInput {
 			return MachineDeploymentSpecInput{
 				E2EConfig:             e2eCtx.E2EConfig,
-				ConfigClusterFn:       defaultConfigCluster,
+				ConfigClusterFn:       upgradeFromConfigCluster,
 				BootstrapClusterProxy: e2eCtx.Environment.BootstrapClusterProxy,
 				AWSSession:            e2eCtx.BootstrapUserAWSSession,
 				Namespace:             namespace,
@@ -125,6 +128,7 @@ var _ = ginkgo.Describe("EKS Cluster upgrade test", func() {
 			Cluster: cluster,
 		}, e2eCtx.E2EConfig.GetIntervals("", "wait-worker-nodes")...)
 		var nodeadmConfigTemplate *eksbootstrapv1.NodeadmConfigTemplate
+		var awsMT *infrav1.AWSMachineTemplate
 		if upgradeToVersionParse.GTE(kube133) {
 			ginkgo.By("creating a nodeadmconfigtemplate object")
 			nodeadmConfigTemplate = &eksbootstrapv1.NodeadmConfigTemplate{
@@ -134,16 +138,39 @@ var _ = ginkgo.Describe("EKS Cluster upgrade test", func() {
 				},
 				Spec: eksbootstrapv1.NodeadmConfigTemplateSpec{
 					Template: eksbootstrapv1.NodeadmConfigTemplateResource{
-						Spec: eksbootstrapv1.NodeadmConfigSpec{
-							PreNodeadmCommands: []string{
-								"echo \"hello world\"",
-							},
-						},
+						Spec: eksbootstrapv1.NodeadmConfigSpec{},
 					},
 				},
 			}
 			ginkgo.By("creating the nodeadm config template in the cluster")
 			Expect(e2eCtx.Environment.BootstrapClusterProxy.GetClient().Create(ctx, nodeadmConfigTemplate)).To(Succeed())
+			ginkgo.By("creating a new aws machine template object with insecure skip secrets manager")
+			awsMT = &infrav1.AWSMachineTemplate{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("%s-mt", clusterName),
+					Namespace: namespace.Name,
+				},
+				Spec: infrav1.AWSMachineTemplateSpec{
+					Template: infrav1.AWSMachineTemplateResource{
+						Spec: infrav1.AWSMachineSpec{
+							CloudInit: infrav1.CloudInit{
+								InsecureSkipSecretsManager: true,
+							},
+							InstanceType: machineType,
+							AMI: infrav1.AMIReference{
+								EKSOptimizedLookupType: ptr.To(infrav1.AmazonLinux2023),
+							},
+							InstanceMetadataOptions: &infrav1.InstanceMetadataOptions{
+								HTTPTokens:              infrav1.HTTPTokensStateRequired,
+								HTTPPutResponseHopLimit: 2,
+							},
+							IAMInstanceProfile: "nodes.cluster-api-provider-aws.sigs.k8s.io",
+						},
+					},
+				},
+			}
+			ginkgo.By("creating the awsMT config template in the cluster")
+			Expect(e2eCtx.Environment.BootstrapClusterProxy.GetClient().Create(ctx, awsMT)).To(Succeed())
 		}
 		ginkgo.By("upgrading machine deployments")
 		input := UpgradeMachineDeploymentsAndWaitInput{
@@ -154,9 +181,14 @@ var _ = ginkgo.Describe("EKS Cluster upgrade test", func() {
 			WaitForMachinesToBeUpgraded: e2eCtx.E2EConfig.GetIntervals("", "wait-worker-nodes"),
 		}
 		if nodeadmConfigTemplate != nil {
-			nodeadmRef, err := ref.GetReference(initScheme(), nodeadmConfigTemplate)
-			Expect(err).To(BeNil(), "object should have ref")
-			input.UpgradeBootstrapTemplate = nodeadmRef
+			input.UpgradeBootstrapTemplate = clusterv1.ContractVersionedObjectReference{
+				Kind:     "NodeadmConfigTemplate",
+				APIGroup: eksbootstrapv1.GroupVersion.Group,
+				Name:     nodeadmConfigTemplate.Name,
+			}
+		}
+		if awsMT != nil {
+			input.UpgradeMachineTemplate = ptr.To(awsMT.Name)
 		}
 		UpgradeMachineDeploymentsAndWait(ctx, input)
 
