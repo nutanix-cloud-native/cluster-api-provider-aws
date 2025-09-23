@@ -1,0 +1,26 @@
+name: PR run unit and integration tests
+
+on:
+  pull_request_target:
+    types:
+      - edited
+      - labeled
+      - reopened
+      - synchronize
+
+jobs:
+  approve:
+    name: runs unit and integration tests
+    if: contains(github.event.pull_request.labels.*.name, 'ok-to-test')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # tag=v4.2.2
+      - name: Calculate go version
+        id: vars
+        run: echo "go_version=$(make go-version)" >> $GITHUB_OUTPUT
+      - name: Set up Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # tag=v6.0.0
+        with:
+          go-version: ${{ steps.vars.outputs.go_version }}
+      - name: Run runs-test
+        run: make test
