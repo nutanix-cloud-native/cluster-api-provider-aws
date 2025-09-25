@@ -173,14 +173,14 @@ func TestNodeadmUserdata(t *testing.T) {
 						Raw: []byte(`
 evictionHard:
   memory.available: "2000Mi"
-						`),
+`),
 					},
 				},
 			},
 			expectErr: false,
 			verifyOutput: func(output string) bool {
 				return strings.Contains(output, "evictionHard:") &&
-					strings.Contains(output, "memory.available: \"2000Mi\"") &&
+					strings.Contains(output, "memory.available: 2000Mi") &&
 					strings.Contains(output, "apiVersion: node.eks.aws/v1alpha1")
 			},
 		},
@@ -549,7 +549,7 @@ evictionHard:
 		t.Run(testcase.name, func(t *testing.T) {
 			bytes, err := NewNodeadmUserdata(testcase.args.input)
 			if testcase.expectErr {
-				g.Expect(err).To(HaveOccurred())
+				g.Expect(err).To(HaveOccurred(), "got error when exepcted none", err)
 				return
 			}
 
