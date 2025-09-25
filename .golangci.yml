@@ -365,6 +365,9 @@ linters:
       - linters:
           - staticcheck
         text: "s.scope.ControlPlaneLoadBalancer is deprecated"
+      - linters:
+          - staticcheck
+        text: "SA1019: .*EKSConfig is deprecated"
     paths:
       - third_party$
       - builtin$
