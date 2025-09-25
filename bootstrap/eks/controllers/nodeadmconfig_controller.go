@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/pkg/errors"
@@ -179,17 +178,13 @@ func (r *NodeadmConfigReconciler) joinWorker(ctx context.Context, cluster *clust
 	if err := r.Get(ctx, client.ObjectKey{Name: cluster.Spec.ControlPlaneRef.Name, Namespace: cluster.Spec.ControlPlaneRef.Namespace}, controlPlane); err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "failed to get control plane")
 	}
-	// Check if control plane is ready (skip in test environments)
+	// Check if control plane is ready
 	if !conditions.IsTrue(controlPlane, ekscontrolplanev1.EKSControlPlaneReadyCondition) {
-		// Skip control plane readiness check in test environment
-		if os.Getenv("TEST_ENV") != "true" {
-			log.Info("Waiting for control plane to be ready")
-			conditions.MarkFalse(config, eksbootstrapv1.DataSecretAvailableCondition,
-				eksbootstrapv1.DataSecretGenerationFailedReason,
-				clusterv1.ConditionSeverityInfo, "Control plane is not initialized yet")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
-		log.Info("Skipping control plane readiness check in test environment")
+		log.Info("Waiting for control plane to be ready")
+		conditions.MarkFalse(config, eksbootstrapv1.DataSecretAvailableCondition,
+			eksbootstrapv1.DataSecretGenerationFailedReason,
+			clusterv1.ConditionSeverityInfo, "Control plane is not initialized yet")
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 	log.Info("Control plane is ready, proceeding with userdata generation")
 
@@ -236,27 +231,21 @@ func (r *NodeadmConfigReconciler) joinWorker(ctx context.Context, cluster *clust
 		nodeInput.FeatureGates = config.Spec.FeatureGates
 	}
 
-	// In test environments, provide a mock CA certificate
-	if os.Getenv("TEST_ENV") == "true" {
-		log.Info("Using mock CA certificate for test environment")
-		nodeInput.CACert = "mock-ca-certificate-for-testing"
-	} else {
-		// Fetch CA cert from KubeConfig secret
-		obj := client.ObjectKey{
-			Namespace: cluster.Namespace,
-			Name:      cluster.Name,
-		}
-		ca, err := extractCAFromSecret(ctx, r.Client, obj)
-		if err != nil {
-			log.Error(err, "Failed to extract CA from kubeconfig secret")
-			conditions.MarkFalse(config, eksbootstrapv1.DataSecretAvailableCondition,
-				eksbootstrapv1.DataSecretGenerationFailedReason,
-				clusterv1.ConditionSeverityWarning,
-				"Failed to extract CA from kubeconfig secret: %v", err)
-			return ctrl.Result{}, err
-		}
-		nodeInput.CACert = ca
+	// Fetch CA cert from KubeConfig secret
+	obj := client.ObjectKey{
+		Namespace: cluster.Namespace,
+		Name:      cluster.Name,
 	}
+	ca, err := extractCAFromSecret(ctx, r.Client, obj)
+	if err != nil {
+		log.Error(err, "Failed to extract CA from kubeconfig secret")
+		conditions.MarkFalse(config, eksbootstrapv1.DataSecretAvailableCondition,
+			eksbootstrapv1.DataSecretGenerationFailedReason,
+			clusterv1.ConditionSeverityWarning,
+			"Failed to extract CA from kubeconfig secret: %v", err)
+		return ctrl.Result{}, err
+	}
+	nodeInput.CACert = ca
 
 	// Get AMI ID and capacity type from owner resource
 	switch configOwner.GetKind() {
@@ -350,7 +339,7 @@ func (r *NodeadmConfigReconciler) storeBootstrapData(ctx context.Context, cluste
 		}
 	}
 
-	config.Status.DataSecretName = ptr.To[string](secret.Name)
+	config.Status.DataSecretName = ptr.To(secret.Name)
 	config.Status.Ready = true
 	conditions.MarkTrue(config, eksbootstrapv1.DataSecretAvailableCondition)
 	return nil

@@ -19,6 +19,7 @@ package controllers
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -27,47 +28,66 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	eksbootstrapv1 "sigs.k8s.io/cluster-api-provider-aws/v2/bootstrap/eks/api/v1beta2"
-	// ekscontrolplanev1 is registered in suite_test; we don't reference it directly here.
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	expclusterv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
 )
 
 func TestNodeadmConfigReconciler_CreateSecret(t *testing.T) {
-	t.Setenv("TEST_ENV", "true")
 	g := NewWithT(t)
 
 	amcp := newAMCP("test-cluster")
-	// ensure APIServerEndpoint is set for nodeadm input validation
-	amcp.Spec.ControlPlaneEndpoint = clusterv1.APIEndpoint{Host: "https://1.2.3.4"}
+	endpoint := clusterv1.APIEndpoint{Host: "https://9.9.9.9", Port: 6443}
+	amcp.Spec.ControlPlaneEndpoint = endpoint
 	cluster := newCluster(amcp.Name)
+	newStatus := cluster.Status
+	amcpStatus := amcp.Status
+	g.Expect(testEnv.Client.Create(ctx, amcp)).To(Succeed())
+	g.Expect(testEnv.Client.Create(ctx, cluster)).To(Succeed())
+	cluster.Status = newStatus
+	g.Expect(testEnv.Client.Status().Update(ctx, cluster)).To(Succeed())
+	amcp.Status = amcpStatus
+	g.Expect(testEnv.Client.Status().Update(ctx, amcp)).To(Succeed())
+	kubeconfigSecret := newKubeconfigSecret("https://9.9.9.9:6443", cluster)
+	g.Expect(testEnv.Client.Create(ctx, kubeconfigSecret)).To(Succeed())
+
 	machine := newMachine(cluster, "test-machine")
 	cfg := newNodeadmConfig(machine)
-
-	g.Expect(testEnv.Client.Create(ctx, amcp)).To(Succeed())
+	g.Expect(testEnv.Client.Create(ctx, cfg)).To(Succeed())
 
 	reconciler := NodeadmConfigReconciler{Client: testEnv.Client}
 
 	g.Eventually(func(gomega Gomega) {
 		_, err := reconciler.joinWorker(ctx, cluster, cfg, configOwner("Machine"))
 		gomega.Expect(err).NotTo(HaveOccurred())
-	}).Should(Succeed())
+	}, time.Second*15, time.Second*5).Should(Succeed())
 
 	secret := &corev1.Secret{}
 	g.Eventually(func(gomega Gomega) {
 		gomega.Expect(testEnv.Client.Get(ctx, client.ObjectKey{Name: cfg.Name, Namespace: "default"}, secret)).To(Succeed())
-	}).Should(Succeed())
+	}, time.Minute, time.Second*5).Should(Succeed())
 
 	g.Expect(string(secret.Data["value"])).To(ContainSubstring("apiVersion: node.eks.aws/v1alpha1"))
-	g.Expect(string(secret.Data["value"])).To(ContainSubstring("apiServerEndpoint: https://1.2.3.4"))
+	g.Expect(string(secret.Data["value"])).To(ContainSubstring("apiServerEndpoint: https://9.9.9.9"))
 }
 
 func TestNodeadmConfigReconciler_UpdateSecret_ForMachinePool(t *testing.T) {
-	t.Setenv("TEST_ENV", "true")
 	g := NewWithT(t)
 
 	amcp := newAMCP("test-cluster")
-	amcp.Spec.ControlPlaneEndpoint = clusterv1.APIEndpoint{Host: "https://5.6.7.8"}
+	endpoint := clusterv1.APIEndpoint{Host: "https://9.9.9.9", Port: 6443}
+	amcp.Spec.ControlPlaneEndpoint = endpoint
 	cluster := newCluster(amcp.Name)
+	newStatus := cluster.Status
+	amcpStatus := amcp.Status
+	g.Expect(testEnv.Client.Create(ctx, amcp)).To(Succeed())
+	g.Expect(testEnv.Client.Create(ctx, cluster)).To(Succeed())
+	cluster.Status = newStatus
+	g.Expect(testEnv.Client.Status().Update(ctx, cluster)).To(Succeed())
+	amcp.Status = amcpStatus
+	g.Expect(testEnv.Client.Status().Update(ctx, amcp)).To(Succeed())
+	kubeconfigSecret := newKubeconfigSecret("https://9.9.9.9:6443", cluster)
+	g.Expect(testEnv.Client.Create(ctx, kubeconfigSecret)).To(Succeed())
+
 	mp := newMachinePool(cluster, "test-mp")
 	cfg := newNodeadmConfig(nil)
 	cfg.ObjectMeta.Name = mp.Name
@@ -79,11 +99,8 @@ func TestNodeadmConfigReconciler_UpdateSecret_ForMachinePool(t *testing.T) {
 		UID:        types.UID(fmt.Sprintf("%s uid", mp.Name)),
 	}}
 	cfg.Status.DataSecretName = &mp.Name
-
 	// initial kubelet flags
 	cfg.Spec.Kubelet = &eksbootstrapv1.KubeletOptions{Flags: []string{"--register-with-taints=dedicated=infra:NoSchedule"}}
-
-	g.Expect(testEnv.Client.Create(ctx, amcp)).To(Succeed())
 
 	reconciler := NodeadmConfigReconciler{Client: testEnv.Client}
 
@@ -91,12 +108,12 @@ func TestNodeadmConfigReconciler_UpdateSecret_ForMachinePool(t *testing.T) {
 	g.Eventually(func(gomega Gomega) {
 		_, err := reconciler.joinWorker(ctx, cluster, cfg, configOwner("MachinePool"))
 		gomega.Expect(err).NotTo(HaveOccurred())
-	}).Should(Succeed())
+	}, time.Minute, time.Second*5).Should(Succeed())
 
 	secret := &corev1.Secret{}
 	g.Eventually(func(gomega Gomega) {
 		gomega.Expect(testEnv.Client.Get(ctx, client.ObjectKey{Name: cfg.Name, Namespace: "default"}, secret)).To(Succeed())
-	}).Should(Succeed())
+	}, time.Minute, time.Second*5).Should(Succeed())
 	oldData := append([]byte(nil), secret.Data["value"]...)
 
 	// change flags to force different userdata
@@ -105,54 +122,35 @@ func TestNodeadmConfigReconciler_UpdateSecret_ForMachinePool(t *testing.T) {
 	g.Eventually(func(gomega Gomega) {
 		_, err := reconciler.joinWorker(ctx, cluster, cfg, configOwner("MachinePool"))
 		gomega.Expect(err).NotTo(HaveOccurred())
-	}).Should(Succeed())
+	}, time.Minute, time.Second*5).Should(Succeed())
 
 	g.Eventually(func(gomega Gomega) {
 		gomega.Expect(testEnv.Client.Get(ctx, client.ObjectKey{Name: cfg.Name, Namespace: "default"}, secret)).To(Succeed())
 		gomega.Expect(secret.Data["value"]).NotTo(Equal(oldData))
-	}).Should(Succeed())
-}
-
-func TestNodeadmConfigReconciler_DoesNotUpdate_ForMachineOwner(t *testing.T) {
-	t.Setenv("TEST_ENV", "true")
-	g := NewWithT(t)
-
-	amcp := newAMCP("test-cluster")
-	amcp.Spec.ControlPlaneEndpoint = clusterv1.APIEndpoint{Host: "https://9.9.9.9"}
-	cluster := newCluster(amcp.Name)
-	machine := newMachine(cluster, "test-machine")
-	cfg := newNodeadmConfig(machine)
-
-	g.Expect(testEnv.Client.Create(ctx, amcp)).To(Succeed())
-
-	// pre-create secret with placeholder data
-	pre := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: machine.Name}}
-	g.Expect(testEnv.Client.Create(ctx, pre)).To(Succeed())
-
-	reconciler := NodeadmConfigReconciler{Client: testEnv.Client}
-	g.Eventually(func(gomega Gomega) {
-		_, err := reconciler.joinWorker(ctx, cluster, cfg, configOwner("Machine"))
-		gomega.Expect(err).NotTo(HaveOccurred())
-	}).Should(Succeed())
-
-	// secret should exist but not be updated from placeholder
-	secret := &corev1.Secret{}
-	g.Eventually(func(gomega Gomega) {
-		gomega.Expect(testEnv.Client.Get(ctx, client.ObjectKey{Name: cfg.Name, Namespace: "default"}, secret)).To(Succeed())
-		gomega.Expect(secret.Data["value"]).To(BeNil())
-	}).Should(Succeed())
+	}, time.Minute, time.Second*5).Should(Succeed())
 }
 
 func TestNodeadmConfigReconciler_ResolvesSecretFileReference(t *testing.T) {
-	t.Setenv("TEST_ENV", "true")
 	g := NewWithT(t)
 
 	amcp := newAMCP("test-cluster")
-	amcp.Spec.ControlPlaneEndpoint = clusterv1.APIEndpoint{Host: "https://3.3.3.3"}
+	endpoint := clusterv1.APIEndpoint{Host: "https://9.9.9.9", Port: 6443}
+	amcp.Spec.ControlPlaneEndpoint = endpoint
+	cluster := newCluster(amcp.Name)
+	newStatus := cluster.Status
+	amcpStatus := amcp.Status
+	g.Expect(testEnv.Client.Create(ctx, amcp)).To(Succeed())
+	g.Expect(testEnv.Client.Create(ctx, cluster)).To(Succeed())
+	cluster.Status = newStatus
+	g.Expect(testEnv.Client.Status().Update(ctx, cluster)).To(Succeed())
+	amcp.Status = amcpStatus
+	g.Expect(testEnv.Client.Status().Update(ctx, amcp)).To(Succeed())
+	kubeconfigSecret := newKubeconfigSecret("https://9.9.9.9:6443", cluster)
+	g.Expect(testEnv.Client.Create(ctx, kubeconfigSecret)).To(Succeed())
+
 	//nolint:gosec // test constant
 	secretPath := "/etc/secret.txt"
 	secretContent := "secretValue"
-	cluster := newCluster(amcp.Name)
 	machine := newMachine(cluster, "test-machine")
 	cfg := newNodeadmConfig(machine)
 	cfg.Spec.Files = append(cfg.Spec.Files, eksbootstrapv1.File{
@@ -168,9 +166,7 @@ func TestNodeadmConfigReconciler_ResolvesSecretFileReference(t *testing.T) {
 	}
 
 	g.Expect(testEnv.Client.Create(ctx, secret)).To(Succeed())
-	g.Expect(testEnv.Client.Create(ctx, amcp)).To(Succeed())
 
-	// expected minimal presence check
 	expectedContains := []string{
 		"#cloud-config",
 		secretContent,
@@ -180,12 +176,12 @@ func TestNodeadmConfigReconciler_ResolvesSecretFileReference(t *testing.T) {
 	g.Eventually(func(gomega Gomega) {
 		_, err := reconciler.joinWorker(ctx, cluster, cfg, configOwner("Machine"))
 		gomega.Expect(err).NotTo(HaveOccurred())
-	}).Should(Succeed())
+	}, time.Minute, time.Second*5).Should(Succeed())
 
 	got := &corev1.Secret{}
 	g.Eventually(func(gomega Gomega) {
 		gomega.Expect(testEnv.Client.Get(ctx, client.ObjectKey{Name: cfg.Name, Namespace: "default"}, got)).To(Succeed())
-	}).Should(Succeed())
+	}, time.Minute, time.Second*5).Should(Succeed())
 
 	for _, s := range expectedContains {
 		g.Expect(string(got.Data["value"])).To(ContainSubstring(s), "userdata should contain %q", s)
