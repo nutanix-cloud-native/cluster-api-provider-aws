@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright 2026 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -50,16 +50,16 @@ func templateToYAML(r *runtime.RawExtension) (string, error) {
 		}
 		return string(b), nil
 	}
-	if len(r.Raw) > 0 {
-		if yb, err := yaml.JSONToYAML(r.Raw); err == nil {
-			return string(yb), nil
-		}
-		var temp interface{}
-		err := yaml.Unmarshal(r.Raw, &temp)
-		if err == nil {
-			return string(r.Raw), nil
-		}
-		return "", fmt.Errorf("runtime object raw is neither json nor yaml %s", string(r.Raw))
+	if len(r.Raw) == 0 {
+		return "", nil
 	}
-	return "", nil
+	if yb, err := yaml.JSONToYAML(r.Raw); err == nil {
+		return string(yb), nil
+	}
+	var temp interface{}
+	err := yaml.Unmarshal(r.Raw, &temp)
+	if err == nil {
+		return string(r.Raw), nil
+	}
+	return "", fmt.Errorf("runtime object raw is neither json nor yaml %s", string(r.Raw))
 }

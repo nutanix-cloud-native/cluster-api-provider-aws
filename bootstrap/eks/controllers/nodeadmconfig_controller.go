@@ -1,3 +1,19 @@
+/*
+Copyright 2026 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package controllers
 
 import (
@@ -26,12 +42,12 @@ import (
 	ekscontrolplanev1 "sigs.k8s.io/cluster-api-provider-aws/v2/controlplane/eks/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/logger"
 	"sigs.k8s.io/cluster-api-provider-aws/v2/util/paused"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	bsutil "sigs.k8s.io/cluster-api/bootstrap/util"
-	expclusterv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
 	"sigs.k8s.io/cluster-api/feature"
 	"sigs.k8s.io/cluster-api/util"
-	"sigs.k8s.io/cluster-api/util/conditions"
+	v1beta1conditions "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions"
 	kubeconfigutil "sigs.k8s.io/cluster-api/util/kubeconfig"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/cluster-api/util/predicates"
@@ -110,11 +126,11 @@ func (r *NodeadmConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	// set up defer block for updating config
 	defer func() {
-		conditions.SetSummary(config,
-			conditions.WithConditions(
+		v1beta1conditions.SetSummary(config,
+			v1beta1conditions.WithConditions(
 				eksbootstrapv1.DataSecretAvailableCondition,
 			),
-			conditions.WithStepCounter(),
+			v1beta1conditions.WithStepCounter(),
 		)
 
 		patchOpts := []patch.Option{}
@@ -141,47 +157,50 @@ func (r *NodeadmConfigReconciler) joinWorker(ctx context.Context, cluster *clust
 		log = log.WithValues("data-secret-name", secretKey.Name)
 		existingSecret := &corev1.Secret{}
 
-		// No error here means the Secret exists and we have no
-		// reason to proceed.
 		err := r.Client.Get(ctx, secretKey, existingSecret)
-		switch {
-		case err == nil:
-			return ctrl.Result{}, nil
-		case !apierrors.IsNotFound(err):
+		if err != nil && !apierrors.IsNotFound(err) {
 			log.Error(err, "unable to check for existing bootstrap secret")
 			return ctrl.Result{}, err
 		}
+		if err == nil {
+			// We already have a secret that we don't need to regenerate
+			return ctrl.Result{}, nil
+		}
 	}
 
-	if cluster.Spec.ControlPlaneRef == nil || cluster.Spec.ControlPlaneRef.Kind != "AWSManagedControlPlane" {
+	if cluster.Spec.ControlPlaneRef.Kind != "AWSManagedControlPlane" {
 		return ctrl.Result{}, errors.New("Cluster's controlPlaneRef needs to be an AWSManagedControlPlane in order to use the EKS bootstrap provider")
 	}
 
-	if !cluster.Status.InfrastructureReady {
+	if !ptr.Deref(cluster.Status.Initialization.InfrastructureProvisioned, false) {
 		log.Info("Cluster infrastructure is not ready")
-		conditions.MarkFalse(config,
+		v1beta1conditions.MarkFalse(config,
 			eksbootstrapv1.DataSecretAvailableCondition,
 			eksbootstrapv1.WaitingForClusterInfrastructureReason,
-			clusterv1.ConditionSeverityInfo, "")
+			clusterv1beta1.ConditionSeverityInfo, "")
 		return ctrl.Result{}, nil
 	}
 
-	if !conditions.IsTrue(cluster, clusterv1.ControlPlaneInitializedCondition) {
+	if !ptr.Deref(cluster.Status.Initialization.ControlPlaneInitialized, false) {
 		log.Info("Control Plane has not yet been initialized")
-		conditions.MarkFalse(config, eksbootstrapv1.DataSecretAvailableCondition, eksbootstrapv1.WaitingForControlPlaneInitializationReason, clusterv1.ConditionSeverityInfo, "")
+		v1beta1conditions.MarkFalse(config, eksbootstrapv1.DataSecretAvailableCondition, eksbootstrapv1.WaitingForControlPlaneInitializationReason, clusterv1beta1.ConditionSeverityInfo, "")
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
 	controlPlane := &ekscontrolplanev1.AWSManagedControlPlane{}
-	if err := r.Get(ctx, client.ObjectKey{Name: cluster.Spec.ControlPlaneRef.Name, Namespace: cluster.Spec.ControlPlaneRef.Namespace}, controlPlane); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Name: cluster.Spec.ControlPlaneRef.Name, Namespace: cluster.Namespace}, controlPlane); err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "failed to get control plane")
 	}
 	// Check if control plane is ready
-	if !conditions.IsTrue(controlPlane, ekscontrolplanev1.EKSControlPlaneReadyCondition) {
+	if !v1beta1conditions.IsTrue(controlPlane, ekscontrolplanev1.EKSControlPlaneReadyCondition) {
 		log.Info("Waiting for control plane to be ready")
-		conditions.MarkFalse(config, eksbootstrapv1.DataSecretAvailableCondition,
+		v1beta1conditions.MarkFalse(
+			config,
+			eksbootstrapv1.DataSecretAvailableCondition,
 			eksbootstrapv1.DataSecretGenerationFailedReason,
-			clusterv1.ConditionSeverityInfo, "Control plane is not initialized yet")
+			clusterv1beta1.ConditionSeverityInfo,
+			"Control plane is not initialized yet",
+		)
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 	log.Info("Control plane is ready, proceeding with userdata generation")
@@ -191,12 +210,12 @@ func (r *NodeadmConfigReconciler) joinWorker(ctx context.Context, cluster *clust
 	files, err := fileResolver.ResolveFiles(ctx, config.Namespace, config.Spec.Files)
 	if err != nil {
 		log.Info("Failed to resolve files for user data")
-		conditions.MarkFalse(config, eksbootstrapv1.DataSecretAvailableCondition, eksbootstrapv1.DataSecretGenerationFailedReason, clusterv1.ConditionSeverityWarning, "%s", err.Error())
+		v1beta1conditions.MarkFalse(config, eksbootstrapv1.DataSecretAvailableCondition, eksbootstrapv1.DataSecretGenerationFailedReason, clusterv1beta1.ConditionSeverityWarning, "%s", err.Error())
 		return ctrl.Result{}, err
 	}
 
 	serviceCIDR := ""
-	if cluster.Spec.ClusterNetwork != nil && cluster.Spec.ClusterNetwork.Services != nil && len(cluster.Spec.ClusterNetwork.Services.CIDRBlocks) > 0 {
+	if len(cluster.Spec.ClusterNetwork.Services.CIDRBlocks) > 0 {
 		serviceCIDR = cluster.Spec.ClusterNetwork.Services.CIDRBlocks[0]
 	}
 	nodeInput := &userdata.NodeadmInput{
@@ -235,9 +254,9 @@ func (r *NodeadmConfigReconciler) joinWorker(ctx context.Context, cluster *clust
 	ca, err := extractCAFromSecret(ctx, r.Client, obj)
 	if err != nil {
 		log.Error(err, "Failed to extract CA from kubeconfig secret")
-		conditions.MarkFalse(config, eksbootstrapv1.DataSecretAvailableCondition,
+		v1beta1conditions.MarkFalse(config, eksbootstrapv1.DataSecretAvailableCondition,
 			eksbootstrapv1.DataSecretGenerationFailedReason,
-			clusterv1.ConditionSeverityWarning,
+			clusterv1beta1.ConditionSeverityWarning,
 			"Failed to extract CA from kubeconfig secret: %v", err)
 		return ctrl.Result{}, err
 	}
@@ -250,18 +269,18 @@ func (r *NodeadmConfigReconciler) joinWorker(ctx context.Context, cluster *clust
 	userDataScript, err := userdata.NewNodeadmUserdata(nodeInput)
 	if err != nil {
 		log.Error(err, "Failed to create a worker join configuration")
-		conditions.MarkFalse(config, eksbootstrapv1.DataSecretAvailableCondition, eksbootstrapv1.DataSecretGenerationFailedReason, clusterv1.ConditionSeverityWarning, "")
+		v1beta1conditions.MarkFalse(config, eksbootstrapv1.DataSecretAvailableCondition, eksbootstrapv1.DataSecretGenerationFailedReason, clusterv1beta1.ConditionSeverityWarning, "")
 		return ctrl.Result{}, err
 	}
 
 	// store userdata as secret
 	if err := r.storeBootstrapData(ctx, cluster, config, userDataScript); err != nil {
 		log.Error(err, "Failed to store bootstrap data")
-		conditions.MarkFalse(config, eksbootstrapv1.DataSecretAvailableCondition, eksbootstrapv1.DataSecretGenerationFailedReason, clusterv1.ConditionSeverityWarning, "")
+		v1beta1conditions.MarkFalse(config, eksbootstrapv1.DataSecretAvailableCondition, eksbootstrapv1.DataSecretGenerationFailedReason, clusterv1beta1.ConditionSeverityWarning, "")
 		return ctrl.Result{}, err
 	}
 
-	conditions.MarkTrue(config, eksbootstrapv1.DataSecretAvailableCondition)
+	v1beta1conditions.MarkTrue(config, eksbootstrapv1.DataSecretAvailableCondition)
 	return ctrl.Result{}, nil
 }
 
@@ -298,8 +317,10 @@ func (r *NodeadmConfigReconciler) storeBootstrapData(ctx context.Context, cluste
 	}
 
 	config.Status.DataSecretName = ptr.To(secret.Name)
+	config.Status.Initialization.DataSecretCreated = ptr.To(true)
+	//nolint:staticcheck // we will support this implementation until CAPA is v1beta2 compliant
 	config.Status.Ready = true
-	conditions.MarkTrue(config, eksbootstrapv1.DataSecretAvailableCondition)
+	v1beta1conditions.MarkTrue(config, eksbootstrapv1.DataSecretAvailableCondition)
 	return nil
 }
 
@@ -354,7 +375,7 @@ func (r *NodeadmConfigReconciler) SetupWithManager(ctx context.Context, mgr ctrl
 
 	if feature.Gates.Enabled(feature.MachinePool) {
 		b = b.Watches(
-			&expclusterv1.MachinePool{},
+			&clusterv1.MachinePool{},
 			handler.EnqueueRequestsFromMapFunc(r.MachinePoolToBootstrapMapFunc),
 		)
 	}
@@ -367,7 +388,7 @@ func (r *NodeadmConfigReconciler) SetupWithManager(ctx context.Context, mgr ctrl
 	err = c.Watch(
 		source.Kind[client.Object](mgr.GetCache(), &clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc((r.ClusterToNodeadmConfigs)),
-			predicates.ClusterPausedTransitionsOrInfrastructureReady(mgr.GetScheme(), logger.FromContext(ctx).GetLogger())),
+			predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(mgr.GetScheme(), logger.FromContext(ctx).GetLogger())),
 	)
 	if err != nil {
 		return errors.Wrap(err, "failed adding watch for Clusters to controller manager")
@@ -383,8 +404,9 @@ func (r *NodeadmConfigReconciler) MachineToBootstrapMapFunc(_ context.Context, o
 	m, ok := o.(*clusterv1.Machine)
 	if !ok {
 		klog.Errorf("Expected a Machine but got a %T", o)
+		return result
 	}
-	if m.Spec.Bootstrap.ConfigRef != nil && m.Spec.Bootstrap.ConfigRef.GroupVersionKind() == eksbootstrapv1.GroupVersion.WithKind("NodeadmConfig") {
+	if m.Spec.Bootstrap.ConfigRef.IsDefined() && m.Spec.Bootstrap.ConfigRef.APIGroup == eksbootstrapv1.GroupVersion.Group && m.Spec.Bootstrap.ConfigRef.Kind == eksbootstrapv1.NodeadmConfigKind {
 		name := client.ObjectKey{Namespace: m.Namespace, Name: m.Spec.Bootstrap.ConfigRef.Name}
 		result = append(result, ctrl.Request{NamespacedName: name})
 	}
@@ -396,12 +418,13 @@ func (r *NodeadmConfigReconciler) MachineToBootstrapMapFunc(_ context.Context, o
 func (r *NodeadmConfigReconciler) MachinePoolToBootstrapMapFunc(_ context.Context, o client.Object) []ctrl.Request {
 	result := []ctrl.Request{}
 
-	m, ok := o.(*expclusterv1.MachinePool)
+	m, ok := o.(*clusterv1.MachinePool)
 	if !ok {
 		klog.Errorf("Expected a MachinePool but got a %T", o)
+		return result
 	}
 	configRef := m.Spec.Template.Spec.Bootstrap.ConfigRef
-	if configRef != nil && configRef.GroupVersionKind().GroupKind() == eksbootstrapv1.GroupVersion.WithKind("NodeadmConfig").GroupKind() {
+	if configRef.IsDefined() && configRef.APIGroup == eksbootstrapv1.GroupVersion.Group && configRef.Kind == eksbootstrapv1.NodeadmConfigKind {
 		name := client.ObjectKey{Namespace: m.Namespace, Name: configRef.Name}
 		result = append(result, ctrl.Request{NamespacedName: name})
 	}
@@ -417,6 +440,7 @@ func (r *NodeadmConfigReconciler) ClusterToNodeadmConfigs(_ context.Context, o c
 	c, ok := o.(*clusterv1.Cluster)
 	if !ok {
 		klog.Errorf("Expected a Cluster but got a %T", o)
+		return result
 	}
 
 	selectors := []client.ListOption{
@@ -432,8 +456,9 @@ func (r *NodeadmConfigReconciler) ClusterToNodeadmConfigs(_ context.Context, o c
 	}
 
 	for _, m := range machineList.Items {
-		if m.Spec.Bootstrap.ConfigRef != nil &&
-			m.Spec.Bootstrap.ConfigRef.GroupVersionKind().GroupKind() == eksbootstrapv1.GroupVersion.WithKind("NodeadmConfig").GroupKind() {
+		if m.Spec.Bootstrap.ConfigRef.IsDefined() &&
+			m.Spec.Bootstrap.ConfigRef.APIGroup == eksbootstrapv1.GroupVersion.Group &&
+			m.Spec.Bootstrap.ConfigRef.Kind == eksbootstrapv1.NodeadmConfigKind {
 			name := client.ObjectKey{Namespace: m.Namespace, Name: m.Spec.Bootstrap.ConfigRef.Name}
 			result = append(result, ctrl.Request{NamespacedName: name})
 		}

@@ -23,6 +23,11 @@ import (
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
 )
 
+const (
+	// NodeadmConfigKind is the Kind for the NodeadmConfig resource.
+	NodeadmConfigKind = "NodeadmConfig"
+)
+
 // NodeadmConfigSpec defines the desired state of NodeadmConfig.
 type NodeadmConfigSpec struct {
 	// Kubelet contains options for kubelet.
@@ -103,7 +108,7 @@ func (r *NodeadmConfig) GetConditions() clusterv1beta1.Conditions {
 }
 
 // SetConditions sets the underlying service state of the NodeadmConfig to the predescribed clusterv1.Conditions.
-func (r *NodeadmConfig) SetConditions(conditions clusterv1.Conditions) {
+func (r *NodeadmConfig) SetConditions(conditions clusterv1beta1.Conditions) {
 	r.Status.Conditions = conditions
 }
 
