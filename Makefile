@@ -587,6 +587,8 @@ release: clean-release check-release-tag check-release-branch $(RELEASE_DIR) $(G
 	CORE_CONTROLLER_IMG=$(PROD_REGISTRY)/$(CORE_IMAGE_NAME) $(MAKE) release-manifests
 	$(MAKE) release-policies
 	$(GORELEASER) release --config $(GORELEASER_CONFIG) --release-notes $(RELEASE_DIR)/CHANGELOG.md --clean --parallelism $(GORELEASER_PARALLELISM)
+	$(MAKE) docker-build-all
+	$(MAKE) docker-push-all
 
 release-policies: $(RELEASE_POLICIES) ## Release policies
 
