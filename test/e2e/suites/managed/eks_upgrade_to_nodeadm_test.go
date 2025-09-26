@@ -135,7 +135,7 @@ var _ = ginkgo.Describe("EKS Cluster upgrade test", func() {
 				Spec: eksbootstrapv1.NodeadmConfigTemplateSpec{
 					Template: eksbootstrapv1.NodeadmConfigTemplateResource{
 						Spec: eksbootstrapv1.NodeadmConfigSpec{
-							PreBootstrapCommands: []string{
+							PreNodeadmCommands: []string{
 								"echo \"hello world\"",
 							},
 						},
