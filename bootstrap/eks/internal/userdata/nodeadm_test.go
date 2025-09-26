@@ -27,82 +27,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	eksbootstrapv1 "sigs.k8s.io/cluster-api-provider-aws/v2/bootstrap/eks/api/v1beta2"
-	"sigs.k8s.io/cluster-api-provider-aws/v2/exp/api/v1beta2"
 )
-
-func TestSetKubeletFlags(t *testing.T) {
-	g := NewWithT(t)
-
-	tests := []struct {
-		name           string
-		in             *NodeadmInput
-		wantNodeLabels []string
-		wantOtherFlags []string
-	}{
-		{
-			name:           "empty kubelet flags",
-			in:             &NodeadmInput{},
-			wantNodeLabels: []string{"eks.amazonaws.com/capacityType=ON_DEMAND"},
-			wantOtherFlags: nil,
-		},
-		{
-			name: "unrelated kubelet flag preserved",
-			in: &NodeadmInput{
-				KubeletFlags: []string{"--register-with-taints=dedicated=infra:NoSchedule"},
-			},
-			wantNodeLabels: []string{"eks.amazonaws.com/capacityType=ON_DEMAND"},
-			wantOtherFlags: []string{"--register-with-taints=dedicated=infra:NoSchedule"},
-		},
-		{
-			name: "existing node-labels augmented",
-			in: &NodeadmInput{
-				KubeletFlags:  []string{"--node-labels=app=foo"},
-				AMIImageID:    "ami-12345",
-				NodeGroupName: "ng-1",
-			},
-			wantNodeLabels: []string{
-				"app=foo",
-				"eks.amazonaws.com/nodegroup-image=ami-12345",
-				"eks.amazonaws.com/nodegroup=ng-1",
-				"eks.amazonaws.com/capacityType=ON_DEMAND",
-			},
-			wantOtherFlags: nil,
-		},
-		{
-			name: "existing eks-specific labels present",
-			in: &NodeadmInput{
-				KubeletFlags:  []string{"--node-labels=app=foo,eks.amazonaws.com/nodegroup=ng-1,eks.amazonaws.com/nodegroup-image=ami-12345,eks.amazonaws.com/capacityType=SPOT"},
-				AMIImageID:    "ami-12345",
-				NodeGroupName: "ng-1",
-			},
-			wantNodeLabels: []string{
-				"app=foo",
-				"eks.amazonaws.com/nodegroup=ng-1",
-				"eks.amazonaws.com/nodegroup-image=ami-12345",
-				"eks.amazonaws.com/capacityType=SPOT",
-			},
-			wantOtherFlags: nil,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tt.in.setKubeletFlags()
-			var gotNodeLabels []string
-			var gotOtherFlags []string
-			for _, flag := range tt.in.KubeletFlags {
-				if strings.HasPrefix(flag, "--node-labels=") {
-					labels := strings.TrimPrefix(flag, "--node-labels=")
-					gotNodeLabels = append(gotNodeLabels, strings.Split(labels, ",")...)
-				} else {
-					gotOtherFlags = append(gotOtherFlags, flag)
-				}
-			}
-			g.Expect(gotNodeLabels).To(ContainElements(tt.wantNodeLabels), "expected node-labels to contain %v, got %v", tt.wantNodeLabels, gotNodeLabels)
-			g.Expect(gotOtherFlags).To(ContainElements(tt.wantOtherFlags), "expected kubelet flags to contain %v, got %v", tt.wantOtherFlags, gotOtherFlags)
-		})
-	}
-}
 
 func TestNodeadmUserdata(t *testing.T) {
 	format.TruncatedDiff = false
@@ -111,9 +36,6 @@ func TestNodeadmUserdata(t *testing.T) {
 	type args struct {
 		input *NodeadmInput
 	}
-
-	onDemandCapacity := v1beta2.ManagedMachinePoolCapacityTypeOnDemand
-	spotCapacity := v1beta2.ManagedMachinePoolCapacityTypeSpot
 
 	tests := []struct {
 		name         string
@@ -128,7 +50,6 @@ func TestNodeadmUserdata(t *testing.T) {
 					ClusterName:       "test-cluster",
 					APIServerEndpoint: "https://example.com",
 					CACert:            "test-ca-cert",
-					NodeGroupName:     "test-nodegroup",
 				},
 			},
 			expectErr: false,
@@ -147,7 +68,6 @@ func TestNodeadmUserdata(t *testing.T) {
 					ClusterName:       "test-cluster",
 					APIServerEndpoint: "https://example.com",
 					CACert:            "test-ca-cert",
-					NodeGroupName:     "test-nodegroup",
 					KubeletFlags: []string{
 						"--node-labels=node-role.undistro.io/infra=true",
 						"--register-with-taints=dedicated=infra:NoSchedule",
@@ -168,7 +88,6 @@ func TestNodeadmUserdata(t *testing.T) {
 					ClusterName:       "test-cluster",
 					APIServerEndpoint: "https://example.com",
 					CACert:            "test-ca-cert",
-					NodeGroupName:     "test-nodegroup",
 					KubeletConfig: &runtime.RawExtension{
 						Raw: []byte(`
 evictionHard:
@@ -191,7 +110,6 @@ evictionHard:
 					ClusterName:       "test-cluster",
 					APIServerEndpoint: "https://example.com",
 					CACert:            "test-ca-cert",
-					NodeGroupName:     "test-nodegroup",
 					PreBootstrapCommands: []string{
 						"echo 'pre-bootstrap'",
 						"yum install -y htop",
@@ -213,7 +131,6 @@ evictionHard:
 					ClusterName:       "test-cluster",
 					APIServerEndpoint: "https://test-endpoint.eks.amazonaws.com",
 					CACert:            "test-cert",
-					NodeGroupName:     "test-nodegroup",
 					AMIImageID:        "ami-123456",
 					ServiceCIDR:       "192.168.0.0/16",
 				},
@@ -221,7 +138,6 @@ evictionHard:
 			expectErr: false,
 			verifyOutput: func(output string) bool {
 				return strings.Contains(output, "cidr: 192.168.0.0/16") &&
-					strings.Contains(output, "nodegroup-image=ami-123456") &&
 					strings.Contains(output, "apiVersion: node.eks.aws/v1alpha1")
 			},
 		},
@@ -232,7 +148,6 @@ evictionHard:
 					ClusterName:       "test-cluster",
 					APIServerEndpoint: "https://example.com",
 					CACert:            "test-ca-cert",
-					NodeGroupName:     "test-nodegroup",
 					NTP: &eksbootstrapv1.NTP{
 						Enabled: ptr.To(true),
 						Servers: []string{"time.google.com"},
@@ -254,7 +169,6 @@ evictionHard:
 					ClusterName:       "test-cluster",
 					APIServerEndpoint: "https://example.com",
 					CACert:            "test-ca-cert",
-					NodeGroupName:     "test-nodegroup",
 					Users: []eksbootstrapv1.User{
 						{
 							Name:              "testuser",
@@ -278,7 +192,6 @@ evictionHard:
 					ClusterName:       "test-cluster",
 					APIServerEndpoint: "https://example.com",
 					CACert:            "test-ca-cert",
-					NodeGroupName:     "test-nodegroup",
 					DiskSetup: &eksbootstrapv1.DiskSetup{
 						Filesystems: []eksbootstrapv1.Filesystem{
 							{
@@ -306,7 +219,6 @@ evictionHard:
 					ClusterName:       "test-cluster",
 					APIServerEndpoint: "https://example.com",
 					CACert:            "test-ca-cert",
-					NodeGroupName:     "test-nodegroup",
 					Mounts: []eksbootstrapv1.MountPoints{
 						{"/dev/disk/scsi1/lun0"},
 						{"/mnt/etcd"},
@@ -329,7 +241,6 @@ evictionHard:
 					ClusterName:          "test-cluster",
 					APIServerEndpoint:    "https://example.com",
 					CACert:               "test-ca-cert",
-					NodeGroupName:        "test-nodegroup",
 					Boundary:             "CUSTOMBOUNDARY123",
 					PreBootstrapCommands: []string{"echo 'pre-bootstrap'"},
 					NTP: &eksbootstrapv1.NTP{
@@ -357,7 +268,6 @@ evictionHard:
 					ClusterName:       "test-cluster",
 					APIServerEndpoint: "https://example.com",
 					CACert:            "test-ca-cert",
-					NodeGroupName:     "test-nodegroup",
 				},
 			},
 			expectErr: false,
@@ -378,7 +288,6 @@ evictionHard:
 					ClusterName:          "test-cluster",
 					APIServerEndpoint:    "https://example.com",
 					CACert:               "test-ca-cert",
-					NodeGroupName:        "test-nodegroup",
 					PreBootstrapCommands: []string{"echo 'test'"},
 					NTP: &eksbootstrapv1.NTP{
 						Enabled: ptr.To(true),
@@ -393,81 +302,8 @@ evictionHard:
 					strings.Contains(output, "Content-Type: application/node.eks.aws") &&
 					strings.Contains(output, "Content-Type: text/x-shellscript") &&
 					strings.Contains(output, "Content-Type: text/cloud-config") &&
+					strings.Contains(output, "apiVersion: node.eks.aws/v1alpha1") &&
 					strings.Count(output, fmt.Sprintf("--%s", boundary)) == 5 // 3 parts * 2 boundaries each except cloud-config
-			},
-		},
-		{
-			name: "node-labels without capacityType - should add ON_DEMAND",
-			args: args{
-				input: &NodeadmInput{
-					ClusterName:       "test-cluster",
-					APIServerEndpoint: "https://example.com",
-					CACert:            "test-ca-cert",
-					NodeGroupName:     "test-nodegroup",
-					AMIImageID:        "ami-123456",
-					KubeletFlags: []string{
-						"--node-labels=app=my-app,environment=production",
-					},
-					CapacityType: nil, // Should default to ON_DEMAND
-				},
-			},
-			expectErr: false,
-			verifyOutput: func(output string) bool {
-				return strings.Contains(output, "app=my-app") &&
-					strings.Contains(output, "environment=production") &&
-					strings.Contains(output, "eks.amazonaws.com/capacityType=ON_DEMAND") &&
-					strings.Contains(output, "eks.amazonaws.com/nodegroup-image=ami-123456") &&
-					strings.Contains(output, "eks.amazonaws.com/nodegroup=test-nodegroup") &&
-					strings.Contains(output, "apiVersion: node.eks.aws/v1alpha1")
-			},
-		},
-		{
-			name: "node-labels with capacityType set to SPOT",
-			args: args{
-				input: &NodeadmInput{
-					ClusterName:       "test-cluster",
-					APIServerEndpoint: "https://example.com",
-					CACert:            "test-ca-cert",
-					NodeGroupName:     "test-nodegroup",
-					AMIImageID:        "ami-123456",
-					KubeletFlags: []string{
-						"--node-labels=workload=batch",
-					},
-					CapacityType: &spotCapacity,
-				},
-			},
-			expectErr: false,
-			verifyOutput: func(output string) bool {
-				return strings.Contains(output, "workload=batch") &&
-					strings.Contains(output, "eks.amazonaws.com/nodegroup-image=ami-123456") &&
-					strings.Contains(output, "eks.amazonaws.com/nodegroup=test-nodegroup") &&
-					strings.Contains(output, "eks.amazonaws.com/capacityType=SPOT") &&
-					strings.Contains(output, "apiVersion: node.eks.aws/v1alpha1")
-			},
-		},
-		{
-			name: "no existing node-labels - should only add generated labels",
-			args: args{
-				input: &NodeadmInput{
-					ClusterName:       "test-cluster",
-					APIServerEndpoint: "https://example.com",
-					CACert:            "test-ca-cert",
-					NodeGroupName:     "test-nodegroup",
-					AMIImageID:        "ami-789012",
-					KubeletFlags: []string{
-						"--max-pods=100",
-					},
-					CapacityType: &spotCapacity,
-				},
-			},
-			expectErr: false,
-			verifyOutput: func(output string) bool {
-				return strings.Contains(output, "--node-labels") &&
-					strings.Contains(output, "eks.amazonaws.com/nodegroup-image=ami-789012") &&
-					strings.Contains(output, "eks.amazonaws.com/nodegroup=test-nodegroup") &&
-					strings.Contains(output, "eks.amazonaws.com/capacityType=SPOT") &&
-					strings.Contains(output, `"--max-pods=100"`) &&
-					strings.Contains(output, "apiVersion: node.eks.aws/v1alpha1")
 			},
 		},
 		{
@@ -477,21 +313,17 @@ evictionHard:
 					ClusterName:       "test-cluster",
 					APIServerEndpoint: "https://example.com",
 					CACert:            "test-ca-cert",
-					NodeGroupName:     "test-nodegroup",
 					KubeletFlags: []string{
 						"--node-labels=tier=workers",
 						"--register-with-taints=dedicated=gpu:NoSchedule",
 						"--max-pods=58",
 					},
-					CapacityType: &onDemandCapacity,
 				},
 			},
 			expectErr: false,
 			verifyOutput: func(output string) bool {
 				return strings.Contains(output, "--node-labels") &&
 					strings.Contains(output, "tier=workers") &&
-					strings.Contains(output, "eks.amazonaws.com/nodegroup=test-nodegroup") &&
-					strings.Contains(output, "eks.amazonaws.com/capacityType=ON_DEMAND") &&
 					strings.Contains(output, `"--register-with-taints=dedicated=gpu:NoSchedule"`) &&
 					strings.Contains(output, `"--max-pods=58"`) &&
 					strings.Contains(output, "apiVersion: node.eks.aws/v1alpha1")
@@ -511,9 +343,8 @@ evictionHard:
 			name: "missing API server endpoint",
 			args: args{
 				input: &NodeadmInput{
-					ClusterName:   "test-cluster",
-					CACert:        "test-ca-cert",
-					NodeGroupName: "test-nodegroup",
+					ClusterName: "test-cluster",
+					CACert:      "test-ca-cert",
 					// Missing APIServerEndpoint
 				},
 			},
@@ -525,20 +356,7 @@ evictionHard:
 				input: &NodeadmInput{
 					ClusterName:       "test-cluster",
 					APIServerEndpoint: "https://example.com",
-					NodeGroupName:     "test-nodegroup",
 					// Missing CACert
-				},
-			},
-			expectErr: true,
-		},
-		{
-			name: "missing node group name",
-			args: args{
-				input: &NodeadmInput{
-					ClusterName:       "test-cluster",
-					APIServerEndpoint: "https://example.com",
-					CACert:            "test-ca-cert",
-					// Missing NodeGroupName
 				},
 			},
 			expectErr: true,
@@ -549,7 +367,7 @@ evictionHard:
 		t.Run(testcase.name, func(t *testing.T) {
 			bytes, err := NewNodeadmUserdata(testcase.args.input)
 			if testcase.expectErr {
-				g.Expect(err).To(HaveOccurred(), "got error when exepcted none", err)
+				g.Expect(err).To(HaveOccurred())
 				return
 			}
 
