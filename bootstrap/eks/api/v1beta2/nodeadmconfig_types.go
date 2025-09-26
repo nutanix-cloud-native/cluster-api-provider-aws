@@ -17,10 +17,6 @@ type NodeadmConfigSpec struct {
 	// +optional
 	Containerd *ContainerdOptions `json:"containerd,omitempty"`
 
-	// Instance contains options for the node's operating system and devices.
-	// +optional
-	Instance *InstanceOptions `json:"instance,omitempty"`
-
 	// FeatureGates holds key-value pairs to enable or disable application features.
 	// +optional
 	FeatureGates map[Feature]bool `json:"featureGates,omitempty"`
@@ -74,29 +70,6 @@ type ContainerdOptions struct {
 	BaseRuntimeSpec *runtime.RawExtension `json:"baseRuntimeSpec,omitempty"`
 }
 
-// InstanceOptions determines how the node's operating system and devices are configured.
-type InstanceOptions struct {
-	// LocalStorage contains options for configuring EC2 instance stores.
-	// +optional
-	LocalStorage *LocalStorageOptions `json:"localStorage,omitempty"`
-}
-
-// LocalStorageOptions control how EC2 instance stores are used when available.
-type LocalStorageOptions struct {
-	// Strategy specifies how to handle an instance's local storage devices.
-	Strategy LocalStorageStrategy `json:"strategy"`
-
-	// MountPath is the path where the filesystem will be mounted.
-	// Defaults to "/mnt/k8s-disks/".
-	// +optional
-	MountPath string `json:"mountPath,omitempty"`
-
-	// DisabledMounts is a list of directories that will not be mounted to LocalStorage.
-	// By default, all mounts are enabled.
-	// +optional
-	DisabledMounts []DisabledMount `json:"disabledMounts,omitempty"`
-}
-
 // Feature specifies which feature gate should be toggled.
 // +kubebuilder:validation:Enum=InstanceIdNodeName;FastImagePull
 type Feature string
@@ -106,30 +79,6 @@ const (
 	FeatureInstanceIDNodeName Feature = "InstanceIdNodeName"
 	// FeatureFastImagePull enables a parallel image pull for container images.
 	FeatureFastImagePull Feature = "FastImagePull"
-)
-
-// LocalStorageStrategy specifies how to handle an instance's local storage devices.
-// +kubebuilder:validation:Enum=RAID0;RAID10;Mount
-type LocalStorageStrategy string
-
-const (
-	// RAID0Strategy is a local storage strategy for EKS nodes
-	RAID0Strategy LocalStorageStrategy = "RAID0"
-	// RAID10Strategy is a local storage strategy for EKS nodes
-	RAID10Strategy LocalStorageStrategy = "RAID10"
-	// MountStrategy is a local storage strategy for EKS nodes
-	MountStrategy LocalStorageStrategy = "Mount"
-)
-
-// DisabledMount specifies a directory that should not be mounted onto local storage.
-// +kubebuilder:validation:Enum=Containerd;PodLogs
-type DisabledMount string
-
-const (
-	// DisabledMountContainerd refers to /var/lib/containerd
-	DisabledMountContainerd DisabledMount = "Containerd"
-	// DisabledMountPodLogs refers to /var/log/pods
-	DisabledMountPodLogs DisabledMount = "PodLogs"
 )
 
 // GetConditions returns the observations of the operational state of the NodeadmConfig resource.
