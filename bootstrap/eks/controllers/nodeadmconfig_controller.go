@@ -202,7 +202,6 @@ func (r *NodeadmConfigReconciler) joinWorker(ctx context.Context, cluster *clust
 	nodeInput := &userdata.NodeadmInput{
 		// AWSManagedControlPlane webhooks default and validate EKSClusterName
 		ClusterName:          controlPlane.Spec.EKSClusterName,
-		Instance:             config.Spec.Instance,
 		PreBootstrapCommands: config.Spec.PreBootstrapCommands,
 		Users:                config.Spec.Users,
 		NTP:                  config.Spec.NTP,

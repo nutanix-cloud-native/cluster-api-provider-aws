@@ -192,43 +192,6 @@ spec:
                   - path
                   type: object
                 type: array
-              instance:
-                description: Instance contains options for the node's operating system
-                  and devices.
-                properties:
-                  localStorage:
-                    description: LocalStorage contains options for configuring EC2
-                      instance stores.
-                    properties:
-                      disabledMounts:
-                        description: |-
-                          DisabledMounts is a list of directories that will not be mounted to LocalStorage.
-                          By default, all mounts are enabled.
-                        items:
-                          description: DisabledMount specifies a directory that should
-                            not be mounted onto local storage.
-                          enum:
-                          - Containerd
-                          - PodLogs
-                          type: string
-                        type: array
-                      mountPath:
-                        description: |-
-                          MountPath is the path where the filesystem will be mounted.
-                          Defaults to "/mnt/k8s-disks/".
-                        type: string
-                      strategy:
-                        description: Strategy specifies how to handle an instance's
-                          local storage devices.
-                        enum:
-                        - RAID0
-                        - RAID10
-                        - Mount
-                        type: string
-                    required:
-                    - strategy
-                    type: object
-                type: object
               kubelet:
                 description: Kubelet contains options for kubelet.
                 properties:
