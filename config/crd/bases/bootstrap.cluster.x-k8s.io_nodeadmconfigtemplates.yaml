@@ -51,6 +51,12 @@ spec:
                   spec:
                     description: NodeadmConfigSpec defines the desired state of NodeadmConfig.
                     properties:
+                      PreNodeadmCommands:
+                        description: PreNodeadmCommands specifies extra commands to
+                          run before bootstrapping nodes.
+                        items:
+                          type: string
+                        type: array
                       containerd:
                         description: Containerd contains options for containerd.
                         properties:
@@ -246,12 +252,6 @@ spec:
                               type: string
                             type: array
                         type: object
-                      preBootstrapCommands:
-                        description: PreBootstrapCommands specifies extra commands
-                          to run before bootstrapping nodes.
-                        items:
-                          type: string
-                        type: array
                       users:
                         description: Users specifies extra users to add.
                         items:

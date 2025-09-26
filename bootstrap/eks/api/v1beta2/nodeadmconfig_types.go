@@ -21,9 +21,9 @@ type NodeadmConfigSpec struct {
 	// +optional
 	FeatureGates map[Feature]bool `json:"featureGates,omitempty"`
 
-	// PreBootstrapCommands specifies extra commands to run before bootstrapping nodes.
+	// PreNodeadmCommands specifies extra commands to run before bootstrapping nodes.
 	// +optional
-	PreBootstrapCommands []string `json:"preBootstrapCommands,omitempty"`
+	PreNodeadmCommands []string `json:"PreNodeadmCommands,omitempty"`
 
 	// Files specifies extra files to be passed to user_data upon creation.
 	// +optional
