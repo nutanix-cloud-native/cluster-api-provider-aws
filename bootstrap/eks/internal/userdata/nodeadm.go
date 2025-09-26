@@ -19,14 +19,12 @@ package userdata
 import (
 	"bytes"
 	"fmt"
-	"strings"
 	"text/template"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 
 	eksbootstrapv1 "sigs.k8s.io/cluster-api-provider-aws/v2/bootstrap/eks/api/v1beta2"
-	"sigs.k8s.io/cluster-api-provider-aws/v2/exp/api/v1beta2"
 )
 
 const (
@@ -95,14 +93,16 @@ spec:
     {{$k}}: {{$v}}
   {{- end }}
   {{- end }}
+{{- if .KubeletConfig }}
   kubelet:
-    {{- if .KubeletConfig }}
     config:
 {{ Indent 6 (toYaml .KubeletConfig) }}
     {{- end }}
+    {{- if .KubeletFlags }}
     flags:
-    {{- range $flag := .KubeletFlags }}
-    - "{{$flag}}"
+      {{- range $flag := .KubeletFlags }}
+       - "{{$flag}}"
+      {{- end }}
     {{- end }}
   {{- if or .ContainerdConfig .ContainerdBaseRuntimeSpec }}
   containerd:
@@ -133,10 +133,6 @@ spec:
   {{- end }}
 
 --{{.Boundary}}`
-
-	nodeLabelImage        = "eks.amazonaws.com/nodegroup-image"
-	nodeLabelNodeGroup    = "eks.amazonaws.com/nodegroup"
-	nodeLabelCapacityType = "eks.amazonaws.com/capacityType"
 )
 
 // NodeadmInput contains all the information required to generate user data for a node.
@@ -160,68 +156,8 @@ type NodeadmInput struct {
 	APIServerEndpoint string
 	Boundary          string
 	CACert            string
-	CapacityType      *v1beta2.ManagedMachinePoolCapacityType
 	ServiceCIDR       string // Service CIDR range for the cluster
 	ClusterDNS        string
-	NodeGroupName     string
-	NodeLabels        string // Not exposed in CRD, computed from user input
-}
-
-func (input *NodeadmInput) setKubeletFlags() error {
-	var nodeLabels string
-	newFlags := []string{}
-	for _, flag := range input.KubeletFlags {
-		if strings.HasPrefix(flag, "--node-labels=") {
-			nodeLabels = strings.TrimPrefix(flag, "--node-labels=")
-		} else {
-			newFlags = append(newFlags, flag)
-		}
-	}
-	labelsMap := make(map[string]string)
-	if nodeLabels != "" {
-		labels := strings.Split(nodeLabels, ",")
-		for _, label := range labels {
-			labelSplit := strings.Split(label, "=")
-			if len(labelSplit) != 2 {
-				return fmt.Errorf("invalid label: %s", label)
-			}
-			labelKey := labelSplit[0]
-			labelValue := labelSplit[1]
-			labelsMap[labelKey] = labelValue
-		}
-	}
-	if _, ok := labelsMap[nodeLabelImage]; !ok && input.AMIImageID != "" {
-		labelsMap[nodeLabelImage] = input.AMIImageID
-	}
-	if _, ok := labelsMap[nodeLabelNodeGroup]; !ok && input.NodeGroupName != "" {
-		labelsMap[nodeLabelNodeGroup] = input.NodeGroupName
-	}
-	if _, ok := labelsMap[nodeLabelCapacityType]; !ok {
-		labelsMap[nodeLabelCapacityType] = input.getCapacityTypeString()
-	}
-	stringBuilder := strings.Builder{}
-	for key, value := range labelsMap {
-		stringBuilder.WriteString(fmt.Sprintf("%s=%s,", key, value))
-	}
-	newLabels := stringBuilder.String()[:len(stringBuilder.String())-1] // remove the last comma
-	newFlags = append(newFlags, fmt.Sprintf("--node-labels=%s", newLabels))
-	input.KubeletFlags = newFlags
-	return nil
-}
-
-// getCapacityTypeString returns the string representation of the capacity type.
-func (input *NodeadmInput) getCapacityTypeString() string {
-	if input.CapacityType == nil {
-		return "ON_DEMAND"
-	}
-	switch *input.CapacityType {
-	case v1beta2.ManagedMachinePoolCapacityTypeSpot:
-		return "SPOT"
-	case v1beta2.ManagedMachinePoolCapacityTypeOnDemand:
-		return "ON_DEMAND"
-	default:
-		return strings.ToUpper(string(*input.CapacityType))
-	}
 }
 
 // validateNodeInput validates the input for nodeadm user data generation.
@@ -235,18 +171,11 @@ func validateNodeadmInput(input *NodeadmInput) error {
 	if input.ClusterName == "" {
 		return fmt.Errorf("cluster name is required for nodeadm")
 	}
-	if input.NodeGroupName == "" {
-		return fmt.Errorf("node group name is required for nodeadm")
-	}
 	if input.Boundary == "" {
 		input.Boundary = boundary
 	}
-	err := input.setKubeletFlags()
-	if err != nil {
-		return err
-	}
 
-	klog.V(2).Infof("Nodeadm Userdata Generation - node-labels: %s", input.NodeLabels)
+	klog.V(2).Infof("Nodeadm Userdata Generation %v", input)
 
 	return nil
 }

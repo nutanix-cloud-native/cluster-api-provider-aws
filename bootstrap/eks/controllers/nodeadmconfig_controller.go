@@ -21,11 +21,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
 	eksbootstrapv1 "sigs.k8s.io/cluster-api-provider-aws/v2/bootstrap/eks/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-aws/v2/bootstrap/eks/internal/userdata"
 	ekscontrolplanev1 "sigs.k8s.io/cluster-api-provider-aws/v2/controlplane/eks/api/v1beta2"
-	expinfrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/exp/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/logger"
 	"sigs.k8s.io/cluster-api-provider-aws/v2/util/paused"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -213,7 +211,6 @@ func (r *NodeadmConfigReconciler) joinWorker(ctx context.Context, cluster *clust
 		Files:                files,
 		ServiceCIDR:          serviceCIDR,
 		APIServerEndpoint:    controlPlane.Spec.ControlPlaneEndpoint.Host,
-		NodeGroupName:        config.Name,
 	}
 	if config.Spec.Kubelet != nil {
 		nodeInput.KubeletFlags = config.Spec.Kubelet.Flags
@@ -246,44 +243,6 @@ func (r *NodeadmConfigReconciler) joinWorker(ctx context.Context, cluster *clust
 		return ctrl.Result{}, err
 	}
 	nodeInput.CACert = ca
-
-	// Get AMI ID and capacity type from owner resource
-	switch configOwner.GetKind() {
-	case "AWSManagedMachinePool":
-		amp := &expinfrav1.AWSManagedMachinePool{}
-		if err := r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: configOwner.GetName()}, amp); err == nil {
-			log.Info("Found AWSManagedMachinePool", "name", amp.Name, "launchTemplate", amp.Spec.AWSLaunchTemplate != nil)
-			if amp.Spec.AWSLaunchTemplate != nil && amp.Spec.AWSLaunchTemplate.AMI.ID != nil {
-				nodeInput.AMIImageID = *amp.Spec.AWSLaunchTemplate.AMI.ID
-				log.Info("Set AMI ID from AWSManagedMachinePool launch template", "amiID", nodeInput.AMIImageID)
-			} else {
-				log.Info("No AMI ID found in AWSManagedMachinePool launch template")
-			}
-			if amp.Spec.CapacityType != nil {
-				nodeInput.CapacityType = amp.Spec.CapacityType
-				log.Info("Set capacity type from AWSManagedMachinePool", "capacityType", *amp.Spec.CapacityType)
-			} else {
-				log.Info("No capacity type found in AWSManagedMachinePool")
-			}
-		} else {
-			log.Info("Failed to get AWSManagedMachinePool", "error", err)
-		}
-	case "AWSMachineTemplate":
-		awsmt := &infrav1.AWSMachineTemplate{}
-		var awsMTGetErr error
-		if awsMTGetErr = r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: configOwner.GetName()}, awsmt); awsMTGetErr == nil {
-			log.Info("Found AWSMachineTemplate", "name", awsmt.Name)
-			if awsmt.Spec.Template.Spec.AMI.ID != nil {
-				nodeInput.AMIImageID = *awsmt.Spec.Template.Spec.AMI.ID
-				log.Info("Set AMI ID from AWSMachineTemplate", "amiID", nodeInput.AMIImageID)
-			} else {
-				log.Info("No AMI ID found in AWSMachineTemplate")
-			}
-		}
-		log.Info("Failed to get AWSMachineTemplate", "error", awsMTGetErr)
-	default:
-		log.Info("Config owner kind not recognized for AMI extraction", "kind", configOwner.GetKind())
-	}
 
 	log.Info("Generating nodeadm userdata",
 		"cluster", controlPlane.Spec.EKSClusterName,
