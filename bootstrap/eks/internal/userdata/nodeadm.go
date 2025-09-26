@@ -143,7 +143,6 @@ type NodeadmInput struct {
 	ContainerdConfig          string
 	ContainerdBaseRuntimeSpec *runtime.RawExtension
 	FeatureGates              map[eksbootstrapv1.Feature]bool
-	Instance                  *eksbootstrapv1.InstanceOptions
 
 	PreBootstrapCommands []string
 	Files                []eksbootstrapv1.File
