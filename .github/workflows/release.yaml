@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write # required to write to github release.
+  packages: write
+  actions: write
 
 jobs:
   release:
@@ -36,6 +38,42 @@ jobs:
           echo "Release branch is: $RELEASE_BRANCH"
           echo "Release tag is: $RELEASE_TAG"
           PROD_REGISTRY="ghcr.io/nutanix-cloud-native" make release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY: "ghcr.io/nutanix-cloud-native"
+          PROD_REGISTRY: "ghcr.io/nutanix-cloud-native"
+          GH_ORG_NAME: nutanix-cloud-native
+          TAG: ${{ env.RELEASE_TAG }}
+  images:
+    name: Push images
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set version info
+        run: |
+          echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+          # NB: this gets the closest tag cut from the same branch; for new minor tags, it will find the previous minor, not the previous patch release
+          # (for example v2.7.0, not v2.7.3). For new patch releases, it should fetch the previous patch (e.g. 2.7.3, not v2.7.0)
+          echo "PREVIOUS_VERSION=$(git describe --abbrev=0 2> /dev/null)" >> $GITHUB_ENV
+          echo "RELEASE_BRANCH=release-$(echo ${GITHUB_REF_NAME} | grep -Eo '[0-9]\.[0-9]+')" >> $GITHUB_ENV
+          echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+      - name: Push docker images
+        run: |
+          make docker-build-all
+          make docker-push-all
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REGISTRY: "ghcr.io/nutanix-cloud-native"
