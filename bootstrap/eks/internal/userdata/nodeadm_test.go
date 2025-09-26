@@ -110,7 +110,7 @@ evictionHard:
 					ClusterName:       "test-cluster",
 					APIServerEndpoint: "https://example.com",
 					CACert:            "test-ca-cert",
-					PreBootstrapCommands: []string{
+					PreNodeadmCommands: []string{
 						"echo 'pre-bootstrap'",
 						"yum install -y htop",
 					},
@@ -238,11 +238,11 @@ evictionHard:
 			name: "boundary verification - all three parts with custom boundary",
 			args: args{
 				input: &NodeadmInput{
-					ClusterName:          "test-cluster",
-					APIServerEndpoint:    "https://example.com",
-					CACert:               "test-ca-cert",
-					Boundary:             "CUSTOMBOUNDARY123",
-					PreBootstrapCommands: []string{"echo 'pre-bootstrap'"},
+					ClusterName:        "test-cluster",
+					APIServerEndpoint:  "https://example.com",
+					CACert:             "test-ca-cert",
+					Boundary:           "CUSTOMBOUNDARY123",
+					PreNodeadmCommands: []string{"echo 'pre-bootstrap'"},
 					NTP: &eksbootstrapv1.NTP{
 						Enabled: ptr.To(true),
 						Servers: []string{"time.google.com"},
@@ -285,10 +285,10 @@ evictionHard:
 			name: "boundary verification - all 3 parts",
 			args: args{
 				input: &NodeadmInput{
-					ClusterName:          "test-cluster",
-					APIServerEndpoint:    "https://example.com",
-					CACert:               "test-ca-cert",
-					PreBootstrapCommands: []string{"echo 'test'"},
+					ClusterName:        "test-cluster",
+					APIServerEndpoint:  "https://example.com",
+					CACert:             "test-ca-cert",
+					PreNodeadmCommands: []string{"echo 'test'"},
 					NTP: &eksbootstrapv1.NTP{
 						Enabled: ptr.To(true),
 						Servers: []string{"time.google.com"},

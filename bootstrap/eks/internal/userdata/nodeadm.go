@@ -68,7 +68,7 @@ Content-Disposition: attachment; filename="commands.sh"
 set -o errexit
 set -o pipefail
 set -o nounset
-{{- range .PreBootstrapCommands}}
+{{- range .PreNodeadmCommands}}
 {{.}}
 {{- end}}
 --{{ .Boundary }}`
@@ -144,12 +144,12 @@ type NodeadmInput struct {
 	ContainerdBaseRuntimeSpec *runtime.RawExtension
 	FeatureGates              map[eksbootstrapv1.Feature]bool
 
-	PreBootstrapCommands []string
-	Files                []eksbootstrapv1.File
-	DiskSetup            *eksbootstrapv1.DiskSetup
-	Mounts               []eksbootstrapv1.MountPoints
-	Users                []eksbootstrapv1.User
-	NTP                  *eksbootstrapv1.NTP
+	PreNodeadmCommands []string
+	Files              []eksbootstrapv1.File
+	DiskSetup          *eksbootstrapv1.DiskSetup
+	Mounts             []eksbootstrapv1.MountPoints
+	Users              []eksbootstrapv1.User
+	NTP                *eksbootstrapv1.NTP
 
 	AMIImageID        string
 	APIServerEndpoint string
@@ -193,7 +193,7 @@ func NewNodeadmUserdata(input *NodeadmInput) ([]byte, error) {
 	}
 
 	// Write shell script part if needed
-	if len(input.PreBootstrapCommands) > 0 {
+	if len(input.PreNodeadmCommands) > 0 {
 		shellScriptTemplate := template.Must(template.New("shell").Parse(shellScriptPartTemplate))
 		if err := shellScriptTemplate.Execute(&buf, input); err != nil {
 			return nil, fmt.Errorf("failed to execute shell script template: %v", err)

@@ -571,8 +571,8 @@ func (in *NodeadmConfigSpec) DeepCopyInto(out *NodeadmConfigSpec) {
 			(*out)[key] = val
 		}
 	}
-	if in.PreBootstrapCommands != nil {
-		in, out := &in.PreBootstrapCommands, &out.PreBootstrapCommands
+	if in.PreNodeadmCommands != nil {
+		in, out := &in.PreNodeadmCommands, &out.PreNodeadmCommands
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}

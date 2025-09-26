@@ -201,15 +201,15 @@ func (r *NodeadmConfigReconciler) joinWorker(ctx context.Context, cluster *clust
 	}
 	nodeInput := &userdata.NodeadmInput{
 		// AWSManagedControlPlane webhooks default and validate EKSClusterName
-		ClusterName:          controlPlane.Spec.EKSClusterName,
-		PreBootstrapCommands: config.Spec.PreBootstrapCommands,
-		Users:                config.Spec.Users,
-		NTP:                  config.Spec.NTP,
-		DiskSetup:            config.Spec.DiskSetup,
-		Mounts:               config.Spec.Mounts,
-		Files:                files,
-		ServiceCIDR:          serviceCIDR,
-		APIServerEndpoint:    controlPlane.Spec.ControlPlaneEndpoint.Host,
+		ClusterName:        controlPlane.Spec.EKSClusterName,
+		PreNodeadmCommands: config.Spec.PreNodeadmCommands,
+		Users:              config.Spec.Users,
+		NTP:                config.Spec.NTP,
+		DiskSetup:          config.Spec.DiskSetup,
+		Mounts:             config.Spec.Mounts,
+		Files:              files,
+		ServiceCIDR:        serviceCIDR,
+		APIServerEndpoint:  controlPlane.Spec.ControlPlaneEndpoint.Host,
 	}
 	if config.Spec.Kubelet != nil {
 		nodeInput.KubeletFlags = config.Spec.Kubelet.Flags
