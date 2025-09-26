@@ -38,3 +38,7 @@ jobs:
           PROD_REGISTRY="ghcr.io/nutanix-cloud-native" make release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY: "ghcr.io/nutanix-cloud-native"
+          PROD_REGISTRY: "ghcr.io/nutanix-cloud-native"
+          GH_ORG_NAME: nutanix-cloud-native
+          TAG: ${{ env.RELEASE_TAG }}
