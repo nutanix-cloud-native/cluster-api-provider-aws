@@ -189,6 +189,7 @@ rules:
   - awsclusters/status
   - awsfargateprofiles/status
   - rosaclusters/status
+  - rosaroleconfigs/status
   verbs:
   - get
   - patch
@@ -211,6 +212,7 @@ rules:
   resources:
   - awsmachines
   - rosamachinepools
+  - rosaroleconfigs
   verbs:
   - create
   - delete
@@ -223,6 +225,7 @@ rules:
   - infrastructure.cluster.x-k8s.io
   resources:
   - rosamachinepools/finalizers
+  - rosaroleconfigs/finalizers
   verbs:
   - update
 - apiGroups:
