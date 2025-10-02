@@ -115,22 +115,6 @@ spec:
 {{ Indent 6 (toYaml .ContainerdBaseRuntimeSpec) }}
     {{- end }}
   {{- end }}
-  {{- if .Instance }}
-  instance:
-    {{- if .Instance.LocalStorage }}
-    localStorage:
-      strategy: {{ .Instance.LocalStorage.Strategy }}
-      {{- with .Instance.LocalStorage.MountPath }}
-      mountPath: {{ . }}
-      {{- end }}
-      {{- with .Instance.LocalStorage.DisabledMounts }}
-      disabledMounts:
-      {{- range . }}
-      - {{ . }}
-      {{- end }}
-      {{- end }}
-    {{- end }}
-  {{- end }}
 
 --{{.Boundary}}`
 )
