@@ -1,4 +1,4 @@
-builds:
+#builds:
 # clusterctl-aws
 # - id: "clusterctl-aws"
 #   main: ./cmd/clusterawsadm
