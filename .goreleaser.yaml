@@ -1,4 +1,5 @@
-#builds:
+builds:
+- skip: true
 # clusterctl-aws
 # - id: "clusterctl-aws"
 #   main: ./cmd/clusterawsadm
