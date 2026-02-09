@@ -28,18 +28,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	eksbootstrapv1 "sigs.k8s.io/cluster-api-provider-aws/v2/bootstrap/eks/api/v1beta2"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	expclusterv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
 func TestNodeadmConfigReconciler_CreateSecret(t *testing.T) {
 	g := NewWithT(t)
 
 	amcp := newAMCP("test-cluster")
-	endpoint := clusterv1.APIEndpoint{Host: "https://9.9.9.9", Port: 6443}
-	amcp.Spec.ControlPlaneEndpoint = endpoint
+	endpointV1beta1 := clusterv1beta1.APIEndpoint{Host: "https://9.9.9.9", Port: 6443}
+	endpointV1beta2 := clusterv1.APIEndpoint{Host: "https://9.9.9.9", Port: 6443}
+	amcp.Spec.ControlPlaneEndpoint = endpointV1beta1
 	cluster := newCluster(amcp.Name)
-	cluster.Spec.ControlPlaneEndpoint = endpoint
+	cluster.Spec.ControlPlaneEndpoint = endpointV1beta2
 	newStatus := cluster.Status
 	amcpStatus := amcp.Status
 	g.Expect(testEnv.Client.Create(ctx, amcp)).To(Succeed())
@@ -75,10 +76,11 @@ func TestNodeadmConfigReconciler_UpdateSecret_ForMachinePool(t *testing.T) {
 	g := NewWithT(t)
 
 	amcp := newAMCP("test-cluster")
-	endpoint := clusterv1.APIEndpoint{Host: "https://9.9.9.9", Port: 6443}
-	amcp.Spec.ControlPlaneEndpoint = endpoint
+	endpointV1beta1 := clusterv1beta1.APIEndpoint{Host: "https://9.9.9.9", Port: 6443}
+	endpointV1beta2 := clusterv1.APIEndpoint{Host: "https://9.9.9.9", Port: 6443}
+	amcp.Spec.ControlPlaneEndpoint = endpointV1beta1
 	cluster := newCluster(amcp.Name)
-	cluster.Spec.ControlPlaneEndpoint = endpoint
+	cluster.Spec.ControlPlaneEndpoint = endpointV1beta2
 	newStatus := cluster.Status
 	amcpStatus := amcp.Status
 	g.Expect(testEnv.Client.Create(ctx, amcp)).To(Succeed())
@@ -96,7 +98,7 @@ func TestNodeadmConfigReconciler_UpdateSecret_ForMachinePool(t *testing.T) {
 	cfg.ObjectMeta.UID = types.UID(fmt.Sprintf("%s uid", mp.Name))
 	cfg.ObjectMeta.OwnerReferences = []metav1.OwnerReference{{
 		Kind:       "MachinePool",
-		APIVersion: expclusterv1.GroupVersion.String(),
+		APIVersion: clusterv1.GroupVersion.String(),
 		Name:       mp.Name,
 		UID:        types.UID(fmt.Sprintf("%s uid", mp.Name)),
 	}}
@@ -136,10 +138,11 @@ func TestNodeadmConfigReconciler_ResolvesSecretFileReference(t *testing.T) {
 	g := NewWithT(t)
 
 	amcp := newAMCP("test-cluster")
-	endpoint := clusterv1.APIEndpoint{Host: "https://9.9.9.9", Port: 6443}
-	amcp.Spec.ControlPlaneEndpoint = endpoint
+	endpointV1beta1 := clusterv1beta1.APIEndpoint{Host: "https://9.9.9.9", Port: 6443}
+	endpointV1beta2 := clusterv1.APIEndpoint{Host: "https://9.9.9.9", Port: 6443}
+	amcp.Spec.ControlPlaneEndpoint = endpointV1beta1
 	cluster := newCluster(amcp.Name)
-	cluster.Spec.ControlPlaneEndpoint = endpoint
+	cluster.Spec.ControlPlaneEndpoint = endpointV1beta2
 	newStatus := cluster.Status
 	amcpStatus := amcp.Status
 	g.Expect(testEnv.Client.Create(ctx, amcp)).To(Succeed())

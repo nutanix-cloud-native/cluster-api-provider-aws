@@ -107,6 +107,8 @@ func (*awsManagedControlPlaneWebhook) ValidateCreate(_ context.Context, obj runt
 	allErrs = append(allErrs, r.Spec.AdditionalTags.Validate()...)
 	allErrs = append(allErrs, r.validateNetwork()...)
 	allErrs = append(allErrs, r.validatePrivateDNSHostnameTypeOnLaunch()...)
+	allErrs = append(allErrs, r.validateAccessConfigCreate()...)
+	allErrs = append(allErrs, r.validateAccessEntries()...)
 
 	if len(allErrs) == 0 {
 		return nil, nil
@@ -140,6 +142,7 @@ func (*awsManagedControlPlaneWebhook) ValidateUpdate(ctx context.Context, oldObj
 	allErrs = append(allErrs, r.validateEKSClusterNameSame(oldAWSManagedControlplane)...)
 	allErrs = append(allErrs, r.validateEKSVersion(oldAWSManagedControlplane)...)
 	allErrs = append(allErrs, r.Spec.Bastion.Validate()...)
+	allErrs = append(allErrs, r.validateAccessConfigUpdate(oldAWSManagedControlplane)...)
 	allErrs = append(allErrs, r.validateIAMAuthConfig()...)
 	allErrs = append(allErrs, r.validateSecondaryCIDR()...)
 	allErrs = append(allErrs, r.validateEKSAddons()...)
@@ -148,6 +151,7 @@ func (*awsManagedControlPlaneWebhook) ValidateUpdate(ctx context.Context, oldObj
 	allErrs = append(allErrs, r.validateKubeProxy()...)
 	allErrs = append(allErrs, r.Spec.AdditionalTags.Validate()...)
 	allErrs = append(allErrs, r.validatePrivateDNSHostnameTypeOnLaunch()...)
+	allErrs = append(allErrs, r.validateAccessEntries()...)
 
 	if r.Spec.Region != oldAWSManagedControlplane.Spec.Region {
 		allErrs = append(allErrs,
@@ -311,6 +315,110 @@ func validateEKSAddons(eksVersion *string, networkSpec infrav1.NetworkSpec, addo
 					allErrs = append(allErrs, field.Invalid(addonsPath, addon.Version, fmt.Sprintf("vpc-cni version must be above or equal to %s for IPv6", minVpcCniVersionForIPv6)))
 					break
 				}
+			}
+		}
+	}
+
+	return allErrs
+}
+
+func (r *AWSManagedControlPlane) validateAccessConfigUpdate(old *AWSManagedControlPlane) field.ErrorList {
+	var allErrs field.ErrorList
+
+	// If accessConfig is already set, do not allow removal of it.
+	if old.Spec.AccessConfig != nil && r.Spec.AccessConfig == nil {
+		allErrs = append(allErrs,
+			field.Invalid(field.NewPath("spec", "accessConfig"), r.Spec.AccessConfig, "removing AccessConfig is not allowed after it has been enabled"),
+		)
+	}
+
+	// AuthenticationMode is ratcheting - do not allow downgrades
+	if old.Spec.AccessConfig != nil && r.Spec.AccessConfig != nil &&
+		old.Spec.AccessConfig.AuthenticationMode != r.Spec.AccessConfig.AuthenticationMode &&
+		((old.Spec.AccessConfig.AuthenticationMode == EKSAuthenticationModeAPIAndConfigMap && r.Spec.AccessConfig.AuthenticationMode == EKSAuthenticationModeConfigMap) ||
+			old.Spec.AccessConfig.AuthenticationMode == EKSAuthenticationModeAPI) {
+		allErrs = append(allErrs,
+			field.Invalid(field.NewPath("spec", "accessConfig", "authenticationMode"), r.Spec.AccessConfig.AuthenticationMode, "downgrading authentication mode is not allowed after it has been enabled"),
+		)
+	}
+
+	// BootstrapClusterCreatorAdminPermissions only applies on create, but changes should not invalidate updates
+	if old.Spec.AccessConfig != nil && r.Spec.AccessConfig != nil &&
+		old.Spec.AccessConfig.BootstrapClusterCreatorAdminPermissions != r.Spec.AccessConfig.BootstrapClusterCreatorAdminPermissions {
+		mcpLog.Info("Ignoring changes to BootstrapClusterCreatorAdminPermissions on cluster update", "old", old.Spec.AccessConfig.BootstrapClusterCreatorAdminPermissions, "new", r.Spec.AccessConfig.BootstrapClusterCreatorAdminPermissions)
+	}
+
+	return allErrs
+}
+
+func (r *AWSManagedControlPlane) validateAccessConfigCreate() field.ErrorList {
+	var allErrs field.ErrorList
+
+	if r.Spec.AccessConfig != nil {
+		if r.Spec.AccessConfig.AuthenticationMode == EKSAuthenticationModeConfigMap &&
+			r.Spec.AccessConfig.BootstrapClusterCreatorAdminPermissions != nil &&
+			!*r.Spec.AccessConfig.BootstrapClusterCreatorAdminPermissions {
+			allErrs = append(allErrs,
+				field.Invalid(field.NewPath("spec", "accessConfig", "bootstrapClusterCreatorAdminPermissions"),
+					*r.Spec.AccessConfig.BootstrapClusterCreatorAdminPermissions,
+					"bootstrapClusterCreatorAdminPermissions must be true if cluster authentication mode is set to config_map"),
+			)
+		}
+	}
+
+	return allErrs
+}
+
+func (r *AWSManagedControlPlane) validateAccessEntries() field.ErrorList {
+	var allErrs field.ErrorList
+
+	if len(r.Spec.AccessEntries) == 0 {
+		return allErrs
+	}
+
+	// AccessEntries require AuthenticationMode to be api or api_and_config_map
+	if r.Spec.AccessConfig == nil ||
+		(r.Spec.AccessConfig.AuthenticationMode != EKSAuthenticationModeAPI &&
+			r.Spec.AccessConfig.AuthenticationMode != EKSAuthenticationModeAPIAndConfigMap) {
+		allErrs = append(allErrs,
+			field.Invalid(field.NewPath("spec", "accessEntries"),
+				r.Spec.AccessEntries,
+				"accessEntries can only be used when authenticationMode is set to api or api_and_config_map",
+			),
+		)
+	}
+
+	for i, entry := range r.Spec.AccessEntries {
+		// Validate that EC2 types don't have kubernetes groups or access policies
+		if entry.Type == AccessEntryTypeEC2Linux || entry.Type == AccessEntryTypeEC2Windows {
+			if len(entry.KubernetesGroups) > 0 {
+				allErrs = append(allErrs,
+					field.Invalid(field.NewPath("spec", "accessEntries").Index(i).Child("kubernetesGroups"),
+						entry.KubernetesGroups,
+						"kubernetesGroups cannot be specified when type is ec2_linux or ec2_windows",
+					),
+				)
+			}
+
+			if len(entry.AccessPolicies) > 0 {
+				allErrs = append(allErrs,
+					field.Invalid(field.NewPath("spec", "accessEntries").Index(i).Child("accessPolicies"),
+						entry.AccessPolicies,
+						"accessPolicies cannot be specified when type is ec2_linux or ec2_windows",
+					),
+				)
+			}
+		}
+
+		// Validate namespace scopes
+		for j, policy := range entry.AccessPolicies {
+			if policy.AccessScope.Type == AccessScopeTypeNamespace && len(policy.AccessScope.Namespaces) == 0 {
+				allErrs = append(allErrs,
+					field.Invalid(field.NewPath("spec", "accessEntries").Index(i).Child("accessPolicies").Index(j).Child("accessScope", "namespaces"),
+						policy.AccessScope.Namespaces,
+						"at least one value must be provided when accessScope type is namespace",
+					),
+				)
 			}
 		}
 	}

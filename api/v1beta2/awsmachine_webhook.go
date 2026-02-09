@@ -38,6 +38,11 @@ import (
 	"sigs.k8s.io/cluster-api-provider-aws/v2/feature"
 )
 
+const (
+	hostTenancy  = "host"
+	hostAffinity = "host"
+)
+
 // log is for logging in this package.
 var log = ctrl.Log.WithName("awsmachine-resource")
 
@@ -75,11 +80,11 @@ func (*awsMachineWebhook) ValidateCreate(_ context.Context, obj runtime.Object) 
 	allErrs = append(allErrs, r.validateNonRootVolumes()...)
 	allErrs = append(allErrs, r.validateSSHKeyName()...)
 	allErrs = append(allErrs, r.validateAdditionalSecurityGroups()...)
-	allErrs = append(allErrs, r.validateHostAffinity()...)
 	allErrs = append(allErrs, r.Spec.AdditionalTags.Validate()...)
 	allErrs = append(allErrs, r.validateNetworkElasticIPPool()...)
 	allErrs = append(allErrs, r.validateInstanceMarketType()...)
 	allErrs = append(allErrs, r.validateCapacityReservation()...)
+	allErrs = append(allErrs, r.validateHostAllocation()...)
 
 	return nil, aggregateObjErrors(r.GroupVersionKind().GroupKind(), r.Name, allErrs)
 }
@@ -109,7 +114,7 @@ func (*awsMachineWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj run
 	allErrs = append(allErrs, r.validateCloudInitSecret()...)
 	allErrs = append(allErrs, r.validateAdditionalSecurityGroups()...)
 	allErrs = append(allErrs, r.Spec.AdditionalTags.Validate()...)
-	allErrs = append(allErrs, r.validateHostAffinity()...)
+	allErrs = append(allErrs, r.validateHostAllocation()...)
 
 	newAWSMachineSpec := newAWSMachine["spec"].(map[string]interface{})
 	oldAWSMachineSpec := oldAWSMachine["spec"].(map[string]interface{})
@@ -474,14 +479,31 @@ func (r *AWSMachine) validateAdditionalSecurityGroups() field.ErrorList {
 	return allErrs
 }
 
-func (r *AWSMachine) validateHostAffinity() field.ErrorList {
+func (r *AWSMachine) validateHostAllocation() field.ErrorList {
 	var allErrs field.ErrorList
 
-	if r.Spec.HostAffinity != nil {
-		if r.Spec.HostID == nil || len(*r.Spec.HostID) == 0 {
-			allErrs = append(allErrs, field.Required(field.NewPath("spec.hostID"), "hostID must be set when hostAffinity is configured"))
-		}
+	// Check if both hostID and dynamicHostAllocation are specified
+	hasHostID := r.Spec.HostID != nil && len(*r.Spec.HostID) > 0
+	hasDynamicHostAllocation := r.Spec.DynamicHostAllocation != nil
+
+	// If both hostID and dynamicHostAllocation are specified, return an error
+	if hasHostID && hasDynamicHostAllocation {
+		allErrs = append(allErrs, field.Forbidden(field.NewPath("spec.hostID"), "hostID and dynamicHostAllocation are mutually exclusive"), field.Forbidden(field.NewPath("spec.dynamicHostAllocation"), "hostID and dynamicHostAllocation are mutually exclusive"))
 	}
+
+	// HostID, HostAffinity, and DynamicHostAllocation can only be set when Tenancy is "host"
+	if hasHostID && r.Spec.Tenancy != hostTenancy {
+		allErrs = append(allErrs, field.Forbidden(field.NewPath("spec.hostID"), "hostID can only be set when tenancy is 'host'"))
+	}
+
+	if r.Spec.HostAffinity != nil && *r.Spec.HostAffinity == hostAffinity && r.Spec.Tenancy != hostTenancy {
+		allErrs = append(allErrs, field.Forbidden(field.NewPath("spec.hostAffinity"), "hostAffinity can only be set to 'host' when tenancy is 'host'"))
+	}
+
+	if hasDynamicHostAllocation && r.Spec.Tenancy != hostTenancy {
+		allErrs = append(allErrs, field.Forbidden(field.NewPath("spec.dynamicHostAllocation"), "dynamicHostAllocation can only be set when tenancy is 'host'"))
+	}
+
 	return allErrs
 }
 

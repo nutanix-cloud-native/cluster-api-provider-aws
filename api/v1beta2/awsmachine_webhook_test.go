@@ -469,18 +469,7 @@ func TestAWSMachineCreate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "configure host affinity with Host ID",
-			machine: &AWSMachine{
-				Spec: AWSMachineSpec{
-					InstanceType: "test",
-					HostAffinity: ptr.To("default"),
-					HostID:       ptr.To("h-09dcf61cb388b0149"),
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "configure host affinity with invalid affinity",
+			name: "hostAffinity=invalid is invalid",
 			machine: &AWSMachine{
 				Spec: AWSMachineSpec{
 					InstanceType: "test",
@@ -490,11 +479,176 @@ func TestAWSMachineCreate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "configure host affinity without Host ID",
+			name: "hostAffinity=host does not require hostID or dynamicHostAllocation",
+			machine: &AWSMachine{
+				Spec: AWSMachineSpec{
+					InstanceType: "test",
+					Tenancy:      "host",
+					HostAffinity: ptr.To("host"),
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "hostAffinity=host with hostID is valid",
+			machine: &AWSMachine{
+				Spec: AWSMachineSpec{
+					InstanceType: "test",
+					Tenancy:      "host",
+					HostAffinity: ptr.To("host"),
+					HostID:       ptr.To("h-09dcf61cb388b0149"),
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "hostAffinity=host with dynamicHostAllocation is valid",
+			machine: &AWSMachine{
+				Spec: AWSMachineSpec{
+					InstanceType: "test",
+					Tenancy:      "host",
+					HostAffinity: ptr.To("host"),
+					DynamicHostAllocation: &DynamicHostAllocationSpec{
+						Tags: map[string]string{"env": "test"},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "hostAffinity=default without hostID and dynamicHostAllocation is valid",
 			machine: &AWSMachine{
 				Spec: AWSMachineSpec{
 					InstanceType: "test",
 					HostAffinity: ptr.To("default"),
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "hostAffinity=default with hostID is valid",
+			machine: &AWSMachine{
+				Spec: AWSMachineSpec{
+					InstanceType: "test",
+					Tenancy:      "host",
+					HostAffinity: ptr.To("default"),
+					HostID:       ptr.To("h-09dcf61cb388b0149"),
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "hostAffinity=default with dynamicHostAllocation is valid",
+			machine: &AWSMachine{
+				Spec: AWSMachineSpec{
+					InstanceType: "test",
+					Tenancy:      "host",
+					HostAffinity: ptr.To("default"),
+					DynamicHostAllocation: &DynamicHostAllocationSpec{
+						Tags: map[string]string{"env": "test"},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "hostAffinity omitted (=default) without hostID and dynamicHostAllocation is valid",
+			machine: &AWSMachine{
+				Spec: AWSMachineSpec{
+					InstanceType: "test",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "hostAffinity omitted (=default) with hostID is valid",
+			machine: &AWSMachine{
+				Spec: AWSMachineSpec{
+					InstanceType: "test",
+					Tenancy:      "host",
+					HostID:       ptr.To("h-09dcf61cb388b0149"),
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "hostAffinity omitted (=default) with dynamicHostAllocation is valid",
+			machine: &AWSMachine{
+				Spec: AWSMachineSpec{
+					InstanceType: "test",
+					Tenancy:      "host",
+					DynamicHostAllocation: &DynamicHostAllocationSpec{
+						Tags: map[string]string{"env": "test"},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "hostAffinity=host with both hostID and dynamicHostAllocation is not valid (mutually exclusive)",
+			machine: &AWSMachine{
+				Spec: AWSMachineSpec{
+					InstanceType: "test",
+					Tenancy:      "host",
+					HostAffinity: ptr.To("host"),
+					HostID:       aws.String("h-1234567890abcdef0"),
+					DynamicHostAllocation: &DynamicHostAllocationSpec{
+						Tags: map[string]string{
+							"Environment": "test",
+						},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "hostAffinity=default with both hostID and dynamicHostAllocation is not valid (mutually exclusive)",
+			machine: &AWSMachine{
+				Spec: AWSMachineSpec{
+					InstanceType: "test",
+					Tenancy:      "host",
+					HostAffinity: ptr.To("default"),
+					HostID:       aws.String("h-1234567890abcdef0"),
+					DynamicHostAllocation: &DynamicHostAllocationSpec{
+						Tags: map[string]string{
+							"Environment": "test",
+						},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "hostID without tenancy=host is invalid",
+			machine: &AWSMachine{
+				Spec: AWSMachineSpec{
+					InstanceType: "test",
+					Tenancy:      "default",
+					HostID:       ptr.To("h-09dcf61cb388b0149"),
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "hostAffinity=host without tenancy=host is invalid",
+			machine: &AWSMachine{
+				Spec: AWSMachineSpec{
+					InstanceType: "test",
+					Tenancy:      "default",
+					HostAffinity: ptr.To("host"),
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "dynamicHostAllocation without tenancy=host is invalid",
+			machine: &AWSMachine{
+				Spec: AWSMachineSpec{
+					InstanceType: "test",
+					Tenancy:      "dedicated",
+					DynamicHostAllocation: &DynamicHostAllocationSpec{
+						Tags: map[string]string{"env": "test"},
+					},
 				},
 			},
 			wantErr: true,

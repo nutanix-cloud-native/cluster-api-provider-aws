@@ -65,8 +65,8 @@ import (
 	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/logger"
 	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/record"
 	"sigs.k8s.io/cluster-api-provider-aws/v2/version"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	expclusterv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
+	controlplanev1 "sigs.k8s.io/cluster-api/api/controlplane/kubeadm/v1beta2"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/flags"
 )
 
@@ -80,7 +80,7 @@ func init() {
 	_ = eksbootstrapv1beta1.AddToScheme(scheme)
 	_ = cgscheme.AddToScheme(scheme)
 	_ = clusterv1.AddToScheme(scheme)
-	_ = expclusterv1.AddToScheme(scheme)
+	_ = controlplanev1.AddToScheme(scheme)
 	_ = ekscontrolplanev1.AddToScheme(scheme)
 	_ = ekscontrolplanev1beta1.AddToScheme(scheme)
 	_ = rosacontrolplanev1.AddToScheme(scheme)
@@ -144,7 +144,7 @@ func main() {
 	}
 	ctrl.SetLogger(klog.Background())
 
-	_, metricsOptions, err := flags.GetManagerOptions(managerOptions)
+	tlsOptions, metricsOptions, err := flags.GetManagerOptions(managerOptions)
 	if err != nil {
 		setupLog.Error(err, "Unable to start manager: invalid flags")
 	}
@@ -198,6 +198,7 @@ func main() {
 		WebhookServer: webhook.NewServer(webhook.Options{
 			Port:    webhookPort,
 			CertDir: webhookCertDir,
+			TLSOpts: tlsOptions,
 		}),
 		EventBroadcaster:       broadcaster,
 		HealthProbeBindAddress: healthAddr,
@@ -270,6 +271,17 @@ func main() {
 			os.Exit(1)
 		}
 
+		setupLog.Debug("enabling ROSA network controller")
+		if err = (&expcontrollers.ROSANetworkReconciler{
+			Client:           mgr.GetClient(),
+			WatchFilterValue: watchFilterValue,
+			Log:              ctrl.Log.WithName("controllers").WithName("ROSANetwork"),
+			Scheme:           mgr.GetScheme(),
+		}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: awsClusterConcurrency, RecoverPanic: ptr.To[bool](true)}); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ROSANetwork")
+			os.Exit(1)
+		}
+
 		if err := (&rosacontrolplanev1.ROSAControlPlane{}).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "ROSAControlPlane")
 			os.Exit(1)
@@ -279,8 +291,27 @@ func main() {
 			setupLog.Error(err, "unable to create webhook", "webhook", "ROSAMachinePool")
 			os.Exit(1)
 		}
-	}
 
+		if err := (&expinfrav1.ROSANetwork{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "ROSANetwork")
+			os.Exit(1)
+		}
+
+		setupLog.Debug("enabling ROSA role config controller")
+		if err = (&expcontrollers.ROSARoleConfigReconciler{
+			Client:           mgr.GetClient(),
+			Recorder:         mgr.GetEventRecorderFor("rosaroleconfig-controller"),
+			WatchFilterValue: watchFilterValue,
+		}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: awsClusterConcurrency, RecoverPanic: ptr.To[bool](true)}); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ROSARoleConfig")
+			os.Exit(1)
+		}
+
+		if err := (&expinfrav1.ROSARoleConfig{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "ROSARoleConfig")
+			os.Exit(1)
+		}
+	}
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddReadyzCheck("webhook", mgr.GetWebhookServer().StartedChecker()); err != nil {
@@ -330,9 +361,19 @@ func setupReconcilersAndWebhooks(ctx context.Context, mgr ctrl.Manager,
 			setupLog.Error(err, "unable to create controller", "controller", "AWSCluster")
 			os.Exit(1)
 		}
+
+		setupLog.Info("enabling AWSMachineTemplate controller")
+		if err := (&controllers.AWSMachineTemplateReconciler{
+			Client:           mgr.GetClient(),
+			WatchFilterValue: watchFilterValue,
+		}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: awsClusterConcurrency, RecoverPanic: ptr.To[bool](true)}); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "AWSMachineTemplate")
+			os.Exit(1)
+		}
 	} else {
 		setupLog.Info("controller disabled", "controller", "AWSMachine", "controller-group", controllers.Unmanaged)
 		setupLog.Info("controller disabled", "controller", "AWSCluster", "controller-group", controllers.Unmanaged)
+		setupLog.Info("controller disabled", "controller", "AWSMachineTemplate", "controller-group", controllers.Unmanaged)
 	}
 
 	if feature.Gates.Enabled(feature.MachinePool) {

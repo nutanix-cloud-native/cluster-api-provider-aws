@@ -37,7 +37,7 @@ import (
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/test/framework"
 	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
 	"sigs.k8s.io/cluster-api/util"
@@ -312,7 +312,11 @@ func postProcessBase64LogData(dir, src, dst string) error {
 	}
 
 	// Extract second line which contains the data (first line contains the command)
-	inputStringData := strings.Split(string(inputData), "\n")[1]
+	inputDataLines := strings.Split(string(inputData), "\n")
+	if len(inputDataLines) < 2 {
+		return errors.Errorf("source file %q does not contain expected data (need at least 2 lines, got %d), input data content: %q", sourceFile, len(inputDataLines), string(inputData))
+	}
+	inputStringData := inputDataLines[1]
 
 	// Trim spaces and the $ suffix.
 	inputStringData = strings.TrimSpace(inputStringData)

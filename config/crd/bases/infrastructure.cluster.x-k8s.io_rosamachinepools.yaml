@@ -80,7 +80,7 @@ spec:
                     minimum: 1
                     type: integer
                   minReplicas:
-                    minimum: 1
+                    minimum: 0
                     type: integer
                 type: object
               availabilityZone:
@@ -88,8 +88,21 @@ spec:
                   AvailabilityZone is an optinal field specifying the availability zone where instances of this machine pool should run
                   For Multi-AZ clusters, you can create a machine pool in a Single-AZ of your choice.
                 type: string
+              capacityReservationID:
+                description: |-
+                  CapacityReservationID specifies the ID of an AWS On-Demand Capacity Reservation and Capacity Blocks for ML.
+                  The CapacityReservationID must be pre-created in advance, before creating a NodePool.
+                type: string
+              imageType:
+                description: ImageType is the AMI (Amazon Machine Image) to use for
+                  running the associated NodePool (i.e. Windows or Default/Linux).
+                enum:
+                - Windows
+                - Default
+                type: string
               instanceType:
-                description: InstanceType specifies the AWS instance type
+                description: InstanceType specifies the AWS instance type, for example
+                  `r5.xlarge`. Instance type ref; https://aws.amazon.com/ec2/instance-types/
                 type: string
               labels:
                 additionalProperties:

@@ -764,7 +764,7 @@ func ensureTestImageUploaded(ctx context.Context, e2eCtx *E2EContext) error {
 		return err
 	}
 
-	cmd := exec.Command("docker", "inspect", "--format='{{index .Id}}'", "gcr.io/k8s-staging-cluster-api/capa-manager:e2e")
+	cmd := exec.CommandContext(ctx, "docker", "inspect", "--format='{{index .Id}}'", "gcr.io/k8s-staging-cluster-api/capa-manager:e2e")
 	var stdOut bytes.Buffer
 	cmd.Stdout = &stdOut
 	err := cmd.Run()
@@ -775,7 +775,7 @@ func ensureTestImageUploaded(ctx context.Context, e2eCtx *E2EContext) error {
 	imageSha := strings.ReplaceAll(strings.TrimSuffix(stdOut.String(), "\n"), "'", "")
 
 	ecrImageName := repoName + ":e2e"
-	cmd = exec.Command("docker", "tag", imageSha, ecrImageName) //nolint:gosec
+	cmd = exec.CommandContext(ctx, "docker", "tag", imageSha, ecrImageName) //nolint:gosec
 	err = cmd.Run()
 	if err != nil {
 		return err
@@ -794,13 +794,13 @@ func ensureTestImageUploaded(ctx context.Context, e2eCtx *E2EContext) error {
 		return errors.New("failed to decode ECR authentication token")
 	}
 
-	cmd = exec.Command("docker", "login", "--username", strList[0], "--password", strList[1], "public.ecr.aws") //nolint:gosec
+	cmd = exec.CommandContext(ctx, "docker", "login", "--username", strList[0], "--password", strList[1], "public.ecr.aws") //nolint:gosec
 	err = cmd.Run()
 	if err != nil {
 		return err
 	}
 
-	cmd = exec.Command("docker", "push", ecrImageName)
+	cmd = exec.CommandContext(ctx, "docker", "push", ecrImageName)
 	err = cmd.Run()
 	if err != nil {
 		return err
@@ -919,6 +919,7 @@ func DumpCloudTrailEvents(e2eCtx *E2EContext) {
 		page, err := paginator.NextPage(context.TODO())
 		if err != nil {
 			fmt.Fprintf(GinkgoWriter, "Couldn't get AWS CloudTrail events: err=%v\n", err)
+			break
 		}
 		events = append(events, page.Events...)
 	}
@@ -2403,64 +2404,4 @@ func GetMountTargetState(ctx context.Context, e2eCtx *E2EContext, mountTargetID 
 
 	state := string(result.LifeCycleState)
 	return &state, nil
-}
-
-func getAvailabilityZone(e2eCtx *E2EContext) string {
-	az := e2eCtx.E2EConfig.MustGetVariable(AwsAvailabilityZone1)
-	return az
-}
-
-func getInstanceFamily(e2eCtx *E2EContext) string {
-	machineType := e2eCtx.E2EConfig.MustGetVariable(AwsNodeMachineType)
-	// from instance type get instace family behind the dot
-	// for example: t3a.medium -> t3
-	machineTypeSplit := strings.Split(machineType, ".")
-	if len(machineTypeSplit) > 0 {
-		return machineTypeSplit[0]
-	}
-	return "t3"
-}
-
-func AllocateHost(ctx context.Context, e2eCtx *E2EContext) (string, error) {
-	ec2Svc := ec2.NewFromConfig(*e2eCtx.AWSSession)
-	input := &ec2.AllocateHostsInput{
-		AvailabilityZone: aws.String(getAvailabilityZone(e2eCtx)),
-		InstanceFamily:   aws.String(getInstanceFamily(e2eCtx)),
-		Quantity:         aws.Int32(1),
-	}
-	output, err := ec2Svc.AllocateHosts(ctx, input)
-	Expect(err).ToNot(HaveOccurred(), "Failed to allocate  host")
-	Expect(len(output.HostIds)).To(BeNumerically(">", 0), "No dedicated host ID returned")
-	fmt.Println("Allocated Host ID: ", output.HostIds[0])
-	hostID := output.HostIds[0]
-	return hostID, nil
-}
-
-func ReleaseHost(ctx context.Context, e2eCtx *E2EContext, hostID string) {
-	ec2Svc := ec2.NewFromConfig(*e2eCtx.AWSSession)
-
-	input := &ec2.ReleaseHostsInput{
-		HostIds: []string{hostID},
-	}
-
-	_, err := ec2Svc.ReleaseHosts(ctx, input)
-	Expect(err).ToNot(HaveOccurred(), "Failed to release host %s", hostID)
-	fmt.Println("Released Host ID: ", hostID)
-}
-
-func GetHostID(ctx context.Context, e2eCtx *E2EContext, instanceID string) string {
-	ec2Svc := ec2.NewFromConfig(*e2eCtx.AWSSession)
-
-	input := &ec2.DescribeInstancesInput{
-		InstanceIds: []string{instanceID},
-	}
-
-	result, err := ec2Svc.DescribeInstances(ctx, input)
-	Expect(err).ToNot(HaveOccurred(), "Failed to get host ID for instance %s", instanceID)
-	Expect(len(result.Reservations)).To(BeNumerically(">", 0), "No reservation returned")
-	Expect(len(result.Reservations[0].Instances)).To(BeNumerically(">", 0), "No instance returned")
-	placement := *result.Reservations[0].Instances[0].Placement
-	hostID := *placement.HostId
-	fmt.Println("Host ID: ", hostID)
-	return hostID
 }

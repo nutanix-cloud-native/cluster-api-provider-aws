@@ -32,6 +32,7 @@ import (
 	"time"
 
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/gofrs/flock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -89,7 +90,7 @@ func Node1BeforeSuite(e2eCtx *E2EContext) []byte {
 		templateDir := path.Join(e2eCtx.Settings.ArtifactFolder, "templates")
 		newTemplatePath := templateDir + "/" + ciTemplateForUpgradeName
 
-		err = exec.Command("cp", ciTemplateForUpgradePath, newTemplatePath).Run() //nolint:gosec
+		err = exec.CommandContext(context.TODO(), "cp", ciTemplateForUpgradePath, newTemplatePath).Run() //nolint:gosec
 		Expect(err).NotTo(HaveOccurred())
 
 		clusterctlCITemplateForUpgrade := clusterctl.Files{
@@ -240,6 +241,10 @@ func AllNodesBeforeSuite(e2eCtx *E2EContext, data []byte) {
 	SetEnvVar("AWS_REGION", conf.Region, false)
 	SetEnvVar("AWS_SSH_KEY_NAME", DefaultSSHKeyPairName, false)
 	SetEnvVar("AWS_B64ENCODED_CREDENTIALS", conf.Base64EncodedCredentials, true)
+	stsSvc := sts.NewFromConfig(*e2eCtx.AWSSession)
+	caller, err := stsSvc.GetCallerIdentity(context.TODO(), &sts.GetCallerIdentityInput{})
+	Expect(err).NotTo(HaveOccurred())
+	SetEnvVar(AwsAccountID, *caller.Account, false)
 	e2eCtx.Environment.ResourceTicker = time.NewTicker(time.Second * 5)
 	e2eCtx.Environment.ResourceTickerDone = make(chan bool)
 	// Get EC2 logs every minute
